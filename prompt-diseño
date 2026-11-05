@@ -1,0 +1,11 @@
+Actúa como un diseñador UI/UX experto de nivel Senior. Genera una imagen que sea un mockup profesional de alta fidelidad para el diseño de interfaz de mi aplicación web.
+
+La plataforma es una herramienta de QA y control de calidad visual dirigida a desarrolladores frontend, cuyo objetivo es ayudarles a detectar errores de diseño, desalineaciones de componentes y fallas de accesibilidad.
+
+Sigue estrictamente las siguientes directrices de diseño para construir la imagen:
+1. Estilo y Estructura: Diseño basado en "Bento Grid" (módulos rectangulares organizados de forma limpia) con una estética de "Minimalismo Técnico". Todo debe verse geométrico, ordenado y ultra-preciso, emulando la interfaz de un entorno de desarrollo profesional (como VS Code o Chrome DevTools). Sin degradados decorativos borrosos.
+2. Paleta de Colores (Modo Oscuro): Fondo de pantalla en azul pizarra muy profundo (Slate Dark #0b0f19), superficies de los paneles en un tono slate ligeramente más claro (#1e293b) con bordes delgados y definidos.
+3. Acentos Semánticos y Funcionales: Utiliza color cian brillante (#06b6d4) para los elementos activos y de identidad; color rojo vivo (#ef4444) para resaltar específicamente los errores de layout encontrados en el escaneo; y color ámbar/amarillo (#f59e0b) para las advertencias de accesibilidad.
+4. Elementos en Pantalla: Muestra un panel lateral con una lista detallada de errores tipográficos y de píxeles estilo consola de comandos, líneas de guía geométricas sobrepuestas en un componente inspeccionado, y fuentes monoespaciadas para los datos técnicos.
+
+Genera una captura de pantalla limpia de la aplicación web en formato horizontal (relación de aspecto 16:9).
