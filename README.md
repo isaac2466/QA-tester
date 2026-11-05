@@ -1,37 +1,59 @@
-# QA Tester visual (DINOv2)
+# QA Tester visual
 
-Sube una captura de tu página y el analizador te señala micro-detalles:
-elementos desalineados 1-4px, espaciados inconsistentes, tonos casi duplicados,
-contraste insuficiente (WCAG), qué zonas llaman la atención (DINOv2) y, comparando
-contra el diseño, qué se movió exactamente y cuántos píxeles.
+Sube una captura de tu página y te dice qué está mal: botones desalineados por 1px, colores que no quedan, texto difícil de leer y qué zona llama la atención (con IA, DINOv2).
 
-## Arrancar
+## 1. Instala esto (una sola vez)
+
+- **Python 3.12** → https://www.python.org/downloads/ (marca **"Add python.exe to PATH"**)
+- **Node.js 22** → https://nodejs.org/
+- **Git** → https://git-scm.com/downloads
+- **Solo Windows:** https://aka.ms/vs/17/release/vc_redist.x64.exe (sin esto la IA no funciona)
+
+Después de instalar, **reinicia la PC**.
+
+## 2. Descarga el proyecto
 
 ```bash
-# Backend (terminal 1)
-cd backend
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-
-# Frontend (terminal 2)
-cd frontend
-npm install
-npm run dev        # http://localhost:5173
+git clone https://github.com/isaac2466/QA-tester.git
+cd QA-tester
 ```
 
-La primera vez se descarga el modelo `facebook/dinov2-with-registers-small` (~90 MB).
+## 3. Instala las librerías
 
-Capturas de prueba con errores plantados: `python backend/tests/make_samples.py`
-(quedan en `backend/tests/samples/`).
+```bash
+cd backend
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements.txt
+cd ../frontend
+npm install
+```
 
-## Qué hace cada parte
+## 4. Ábrelo
 
-| Revisión | Cómo |
+Abre **dos terminales** en la carpeta `QA-tester`:
+
+**Terminal 1:**
+```bash
+cd backend
+uvicorn app.main:app --reload --port 8000
+```
+Espera a que diga `DINOv2: cargado en cpu` (la primera vez tarda porque descarga la IA).
+
+**Terminal 2:**
+```bash
+cd frontend
+npm run dev
+```
+
+Entra a **http://localhost:5173**
+
+## ¿No funciona?
+
+| Error | Solución |
 |---|---|
-| Alineación / centrado / espaciado | OpenCV: detecta bloques y líneas de texto y busca bordes que *casi* coinciden |
-| Colores casi duplicados, choques, exceso de acentos | Colores planos exactos + ΔE en espacio Lab |
-| Contraste | Ratio WCAG 2.x entre texto y fondo |
-| Atención visual (qué destaca, CTA, primer pantallazo) | DINOv2: atención del token CLS + parches distintivos |
-| Diseño vs implementación | Diferencia de píxeles + correlación de fase (desplazamiento exacto) + similitud por parche de DINOv2 |
+| `WinError 126` o `shm.dll` | Instala el link de **Solo Windows** del paso 1 y reinicia |
+| `python` o `uvicorn` no se reconoce | Reinstala Python marcando **"Add python.exe to PATH"** |
+| "No se pudo conectar con el backend" | La Terminal 1 no está abierta |
+| Página en blanco | F12 → Console, y manda captura del error al grupo |
 
-Para medidas exactas usa PNG, mismo ancho de viewport y mismo zoom en ambas capturas.
+**Tip:** usa capturas en **PNG** y con el zoom del navegador al 100%.

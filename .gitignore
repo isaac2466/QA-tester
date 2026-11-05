@@ -3,3 +3,5 @@ __pycache__/
 backend/weights/
 .env
 dist/
+.venv/
+venv/
