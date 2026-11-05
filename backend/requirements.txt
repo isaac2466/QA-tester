@@ -1,8 +1,18 @@
-fastapi>=0.115
-uvicorn[standard]>=0.30
-python-multipart>=0.0.9
-pillow>=10.0
-numpy>=1.26
-opencv-python-headless>=4.9
-torch>=2.3
-transformers>=4.47
+# Instalar todo con:  pip install -r backend/requirements.txt
+
+# Descarga PyTorch en versión CPU (~200 MB en vez de +2 GB con GPU)
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# Servidor web
+fastapi==0.142.2
+uvicorn[standard]==0.54.0
+python-multipart==0.0.32
+
+# Imágenes y visión por computadora
+pillow==13.0.0
+numpy==2.5.4
+opencv-python-headless==5.0.0.93
+
+# IA (DINOv2)
+torch==2.15.0
+transformers==5.22.1

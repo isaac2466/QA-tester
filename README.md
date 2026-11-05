@@ -4,7 +4,7 @@ Sube una captura de tu página y te dice qué está mal: botones desalineados po
 
 ## 1. Instala esto (una sola vez)
 
-- **Python 3.12** → https://www.python.org/downloads/ (marca **"Add python.exe to PATH"**)
+- **Python 3.12 o 3.13** → https://www.python.org/downloads/ (marca **"Add python.exe to PATH"**)
 - **Node.js 22** → https://nodejs.org/
 - **Git** → https://git-scm.com/downloads
 - **Solo Windows:** https://aka.ms/vs/17/release/vc_redist.x64.exe (sin esto la IA no funciona)
@@ -20,13 +20,14 @@ cd QA-tester
 
 ## 3. Instala las librerías
 
+Desde la carpeta `QA-tester`, copia y pega estos 2 comandos:
+
 ```bash
-cd backend
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install -r requirements.txt
-cd ../frontend
-npm install
+pip install -r backend/requirements.txt
+npm install --prefix frontend
 ```
+
+El primero instala todo lo de Python, incluida la IA (tarda unos minutos: baja ~300 MB). El segundo instala lo de la página web.
 
 ## 4. Ábrelo
 
@@ -53,6 +54,7 @@ Entra a **http://localhost:5173**
 |---|---|
 | `WinError 126` o `shm.dll` | Instala el link de **Solo Windows** del paso 1 y reinicia |
 | `python` o `uvicorn` no se reconoce | Reinstala Python marcando **"Add python.exe to PATH"** |
+| `No module named ...` | Vuelve a correr `pip install -r backend/requirements.txt` |
 | "No se pudo conectar con el backend" | La Terminal 1 no está abierta |
 | Página en blanco | F12 → Console, y manda captura del error al grupo |
 
