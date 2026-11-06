@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
 
 /** Zona para soltar, elegir o pegar (Ctrl+V) una captura de pantalla. */
 export default function Dropzone({ label, file, onFile, pasteTarget = false }) {
@@ -29,8 +30,10 @@ export default function Dropzone({ label, file, onFile, pasteTarget = false }) {
   };
 
   return (
-    <div
+    <motion.div
       className={`dropzone ${over ? "over" : ""} ${file ? "has-file" : ""}`}
+      whileTap={{ scale: 0.98 }}
+      transition={{ type: "spring", stiffness: 300, damping: 25 }}
       onClick={() => input.current.click()}
       onDragOver={(e) => { e.preventDefault(); setOver(true); }}
       onDragLeave={() => setOver(false)}
@@ -52,6 +55,6 @@ export default function Dropzone({ label, file, onFile, pasteTarget = false }) {
           <small>PNG recomendado (JPG añade ruido a los colores)</small>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }

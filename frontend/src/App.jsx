@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import Dropzone from "./components/Dropzone.jsx";
 import Results from "./components/Results.jsx";
 import Login from "./components/Login.jsx";
@@ -117,8 +118,13 @@ export default function App() {
     : !impl ? "Falta la captura de la implementación (2)." : null;
 
   return (
-    <div className="app">
-      <header className="top">
+    <motion.div
+      className="app"
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: "spring", stiffness: 300, damping: 25 }}
+    >
+      <header className="top glass-panel">
         <div>
           <h1>QA Tester visual</h1>
           <p className="muted">Sube una captura de tu página y encuentra los micro-detalles que no se ven a simple vista.</p>
@@ -127,12 +133,12 @@ export default function App() {
           {!status ? "Conectando…" : status.status === "down" ? "Backend apagado"
             : status.dino.loaded ? `DINOv2 listo (${status.dino.device})` : "DINOv2 no cargado"}
         </span>
-        <button className="ghost" onClick={() => logout().then(() => setUser(null))}>Cerrar sesión</button>
+        <motion.button className="ghost" whileTap={{ scale: 0.95 }} onClick={() => logout().then(() => setUser(null))}>Cerrar sesión</motion.button>
       </header>
 
-      <div className="tabs">
-        <button className={mode === "analyze" ? "active" : ""} onClick={() => switchMode("analyze")}>Analizar una captura</button>
-        <button className={mode === "compare" ? "active" : ""} onClick={() => switchMode("compare")}>Comparar diseño vs implementación</button>
+      <div className="tabs glass-panel">
+        <motion.button className={mode === "analyze" ? "active" : ""} whileTap={{ scale: 0.95 }} onClick={() => switchMode("analyze")}>Analizar una captura</motion.button>
+        <motion.button className={mode === "compare" ? "active" : ""} whileTap={{ scale: 0.95 }} onClick={() => switchMode("compare")}>Comparar diseño vs implementación</motion.button>
       </div>
 
       {mode === "compare" && (
@@ -162,11 +168,11 @@ export default function App() {
       </div>
 
       <div className="actions">
-        <button className="primary" disabled={!ready || loading} onClick={run}>
+        <motion.button className="primary" whileTap={{ scale: 0.95 }} disabled={!ready || loading} onClick={run}>
           {loading ? "Analizando…" : mode === "analyze" ? "Analizar" : "Comparar"}
-        </button>
+        </motion.button>
         {(mode === "analyze" ? file : design || impl) && (
-          <button className="ghost" onClick={reset} disabled={loading}>Limpiar</button>
+          <motion.button className="ghost" whileTap={{ scale: 0.95 }} onClick={reset} disabled={loading}>Limpiar</motion.button>
         )}
         {missing && <span className="muted">{missing}</span>}
       </div>
@@ -177,6 +183,6 @@ export default function App() {
           <Results key={mode + result.elapsed_ms} data={result} views={mode === "analyze" ? ANALYZE_VIEWS : COMPARE_VIEWS} />
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }

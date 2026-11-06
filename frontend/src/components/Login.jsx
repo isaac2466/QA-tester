@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { motion } from "framer-motion";
 import { login, register } from "../services/api.js";
 
 export default function Login({ onAuthenticated }) {
@@ -25,10 +26,15 @@ export default function Login({ onAuthenticated }) {
   };
 
   return (
-    <main className="auth-card">
+    <motion.main
+      className="auth-card"
+      initial={{ opacity: 0, y: 18, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ type: "spring", stiffness: 300, damping: 25 }}
+    >
       <h1>QA Tester visual</h1>
       <p className="muted">{mode === "login" ? "Accede a tu cuenta" : "Crea tu cuenta"}</p>
-      <form onSubmit={submit} className="auth-form">
+      <motion.form onSubmit={submit} className="auth-form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.12 }}>
         <label>Correo electrónico
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         </label>
@@ -36,13 +42,13 @@ export default function Login({ onAuthenticated }) {
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength="8" required />
         </label>
         {error && <p className="error">{error}</p>}
-        <button className="primary" disabled={loading}>
+        <motion.button className="primary" whileTap={{ scale: 0.95 }} disabled={loading}>
           {loading ? "Procesando…" : mode === "login" ? "Iniciar sesión" : "Registrarme"}
-        </button>
-      </form>
-      <button className="ghost" onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(null); }}>
+        </motion.button>
+      </motion.form>
+      <motion.button className="ghost" whileTap={{ scale: 0.95 }} onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(null); }}>
         {mode === "login" ? "Crear una cuenta" : "Ya tengo una cuenta"}
-      </button>
-    </main>
+      </motion.button>
+    </motion.main>
   );
 }

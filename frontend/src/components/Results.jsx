@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { motion } from "framer-motion";
 
 const CATEGORY = {
   alineacion: "Alineación",
@@ -12,10 +13,10 @@ const CATEGORY = {
 function ScoreRing({ score }) {
   const tone = score >= 85 ? "good" : score >= 60 ? "warn" : "bad";
   return (
-    <div className={`score ${tone}`}>
+    <motion.div className={`score ${tone}`} initial={{ scale: 0.85, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", stiffness: 300, damping: 25 }}>
       <span className="score-num">{score}</span>
       <span className="score-label">/ 100</span>
-    </div>
+    </motion.div>
   );
 }
 
@@ -26,7 +27,7 @@ export default function Results({ data, views }) {
   const counts = data.findings.reduce((a, f) => ({ ...a, [f.severity]: (a[f.severity] ?? 0) + 1 }), {});
 
   return (
-    <section className="results">
+    <motion.section className="results" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "spring", stiffness: 300, damping: 25 }}>
       <header className="results-head">
         <ScoreRing score={data.score} />
         <div>
@@ -53,12 +54,12 @@ export default function Results({ data, views }) {
         <div className="viewer">
           <div className="tabs small">
             {available.map((v) => (
-              <button key={v.key} className={view === v.key ? "active" : ""} onClick={() => setView(v.key)}>
+              <motion.button key={v.key} className={view === v.key ? "active" : ""} whileTap={{ scale: 0.95 }} onClick={() => setView(v.key)}>
                 {v.label}
-              </button>
+              </motion.button>
             ))}
           </div>
-          <div className="canvas">
+          <motion.div className="canvas" whileTap={{ scale: 0.995 }}>
             <img src={data.images[view]} alt={view} />
             {active?.box && view === "annotated" && (
               <div
@@ -71,7 +72,7 @@ export default function Results({ data, views }) {
                 }}
               />
             )}
-          </div>
+          </motion.div>
           {data.palette && (
             <div className="palette">
               {data.palette.map((c) => (
@@ -86,9 +87,10 @@ export default function Results({ data, views }) {
 
         <ol className="findings">
           {data.findings.map((f) => (
-            <li
+            <motion.li
               key={f.id}
               className={`finding sev-${f.severity} ${active?.id === f.id ? "active" : ""}`}
+              whileTap={{ scale: 0.98 }}
               onMouseEnter={() => setActive(f)}
               onMouseLeave={() => setActive(null)}
             >
@@ -100,10 +102,10 @@ export default function Results({ data, views }) {
               <h3>{f.title}</h3>
               <p>{f.detail}</p>
               <p className="fix">→ {f.suggestion}</p>
-            </li>
+            </motion.li>
           ))}
         </ol>
       </div>
-    </section>
+    </motion.section>
   );
 }
