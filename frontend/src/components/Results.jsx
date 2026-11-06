@@ -23,6 +23,7 @@ export default function Results({ data, views }) {
   const available = views.filter((v) => data.images[v.key]);
   const [view, setView] = useState(available[0]?.key);
   const [active, setActive] = useState(null);
+  const [highlightBox, setHighlightBox] = useState([0, 0, 0, 0]);
   const counts = data.findings.reduce((a, f) => ({ ...a, [f.severity]: (a[f.severity] ?? 0) + 1 }), {});
 
   return (
@@ -60,17 +61,15 @@ export default function Results({ data, views }) {
           </div>
           <div className="canvas">
             <img src={data.images[view]} alt={view} />
-            {active?.box && view === "annotated" && (
-              <div
-                className="highlight"
-                style={{
-                  left: `${(active.box[0] / data.size[0]) * 100}%`,
-                  top: `${(active.box[1] / data.size[1]) * 100}%`,
-                  width: `${(active.box[2] / data.size[0]) * 100}%`,
-                  height: `${(active.box[3] / data.size[1]) * 100}%`,
-                }}
-              />
-            )}
+            <div
+              className={`highlight ${active?.box && view === "annotated" ? "visible" : ""}`}
+              style={{
+                left: `${(highlightBox[0] / data.size[0]) * 100}%`,
+                top: `${(highlightBox[1] / data.size[1]) * 100}%`,
+                width: `${(highlightBox[2] / data.size[0]) * 100}%`,
+                height: `${(highlightBox[3] / data.size[1]) * 100}%`,
+              }}
+            />
           </div>
           {data.palette && (
             <div className="palette">
@@ -89,7 +88,10 @@ export default function Results({ data, views }) {
             <li
               key={f.id}
               className={`finding sev-${f.severity} ${active?.id === f.id ? "active" : ""}`}
-              onMouseEnter={() => setActive(f)}
+              onMouseEnter={() => {
+                setActive(f);
+                if (f.box) setHighlightBox(f.box);
+              }}
               onMouseLeave={() => setActive(null)}
             >
               <div className="finding-top">

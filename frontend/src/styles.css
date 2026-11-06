@@ -109,7 +109,8 @@ code { font: 12px ui-monospace, Consolas, monospace; }
 .viewer { position: sticky; top: 12px; }
 .canvas { position: relative; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); }
 .canvas img { display: block; width: 100%; height: auto; }
-.highlight { position: absolute; outline: 3px solid var(--accent); box-shadow: 0 0 0 9999px rgb(0 0 0 / .35); pointer-events: none; }
+.highlight { position: absolute; opacity: 0; outline: 3px solid var(--accent); box-shadow: 0 0 0 9999px rgb(0 0 0 / .35), 0 0 18px rgb(115 230 163 / 55%); pointer-events: none; will-change: left, top, width, height, opacity; transition: left .32s cubic-bezier(.22, 1, .36, 1), top .32s cubic-bezier(.22, 1, .36, 1), width .32s cubic-bezier(.22, 1, .36, 1), height .32s cubic-bezier(.22, 1, .36, 1), opacity .16s ease; }
+.highlight.visible { opacity: 1; }
 
 .palette { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .swatch { display: flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px 3px 3px; }
