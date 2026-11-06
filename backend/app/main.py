@@ -10,12 +10,16 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
+from app.api.auth_get import router as auth_get_router
+from app.api.auth_post import router as auth_post_router
 from app.core.config import CORS_ORIGINS
+from app.core.database import initialize_database
 from app.services import dino
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    initialize_database()
     # La primera vez descarga el modelo (~90 MB) desde Hugging Face.
     await run_in_threadpool(dino.load)
     st = dino.status()
@@ -31,6 +35,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(router)
+app.include_router(auth_get_router)
+app.include_router(auth_post_router)
 
 if __name__ == "__main__":
     import uvicorn

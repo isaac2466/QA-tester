@@ -48,6 +48,9 @@ npm run dev
 
 Entra a **http://localhost:5173**
 
+Al abrir la página puedes crear una cuenta con tu correo y una contraseña de mínimo 8 caracteres.
+La contraseña se guarda en el backend como un hash seguro; después podrás iniciar sesión con esas credenciales.
+
 ## ¿No funciona?
 
 | Error | Solución |

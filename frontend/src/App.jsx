@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import Dropzone from "./components/Dropzone.jsx";
 import Results from "./components/Results.jsx";
-import { analyzeImage, compareImages, health } from "./services/api.js";
+import Login from "./components/Login.jsx";
+import { analyzeImage, compareImages, currentUser, health, logout } from "./services/api.js";
 import { load, save } from "./utils/storage.js";
 
 const ANALYZE_VIEWS = [
@@ -24,13 +25,18 @@ export default function App() {
   const [error, setError] = useState(null);
   const [status, setStatus] = useState(null);
   const [hydrated, setHydrated] = useState(false);
+  const [user, setUser] = useState(undefined);
   const resultsRef = useRef(null);
   const justRan = useRef(false);
   const result = results[mode];
 
   useEffect(() => {
     health().then(setStatus).catch(() => setStatus({ status: "down" }));
+    currentUser().then(setUser).catch(() => setUser(null));
   }, []);
+
+  if (user === undefined) return null;
+  if (!user) return <Login onAuthenticated={setUser} />;
 
   // Restaurar la última sesión al recargar (F5)
   useEffect(() => {
@@ -121,6 +127,7 @@ export default function App() {
           {!status ? "Conectando…" : status.status === "down" ? "Backend apagado"
             : status.dino.loaded ? `DINOv2 listo (${status.dino.device})` : "DINOv2 no cargado"}
         </span>
+        <button className="ghost" onClick={() => logout().then(() => setUser(null))}>Cerrar sesión</button>
       </header>
 
       <div className="tabs">
