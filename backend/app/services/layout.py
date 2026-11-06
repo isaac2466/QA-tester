@@ -90,7 +90,9 @@ def detect_elements(rgb: np.ndarray, max_elements=160) -> list[Element]:
         x, y, w, h = cv2.boundingRect(c)
         if w < 16 or h < 12 or w * h > 0.9 * W * H:
             continue
-        if cv2.contourArea(c) / float(w * h) > 0.88:
+        fill = cv2.contourArea(c) / float(w * h)
+        round_shape = 0.8 <= w / h <= 1.25 and fill > 0.72  # avatares e íconos circulares (π/4 ≈ 0.785)
+        if fill > 0.88 or round_shape:
             # el gradiente marca 1px por fuera del borde real → lo compensamos
             blocks.append(Element(x + 1, y + 1, w - 2, h - 2, "bloque"))
     blocks = _dedupe(blocks)

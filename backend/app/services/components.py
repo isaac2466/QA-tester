@@ -27,7 +27,8 @@ def _candidates(elems: list[Element], W: int, H: int) -> list[Element]:
 
 def _compatible(a: Element, b: Element) -> bool:
     """Un botón y una tarjeta pueden parecerse a DINOv2; el tamaño los separa."""
-    return max(a.h, b.h) <= 1.5 * min(a.h, b.h) and max(a.w, b.w) <= 3 * min(a.w, b.w)
+    ra, rb = a.w / a.h, b.w / b.h  # proporción: un botón del menú no es el mismo componente que "Filtros"
+    return max(a.h, b.h) <= 1.5 * min(a.h, b.h) and max(a.w, b.w) <= 3 * min(a.w, b.w) and max(ra, rb) <= 1.6 * min(ra, rb)
 
 
 def _cluster(elems: list[Element], emb: np.ndarray) -> list[list[int]]:
