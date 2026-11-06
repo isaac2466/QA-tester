@@ -35,6 +35,8 @@ ollama pull qwen3-vl:4b-instruct
 2. Instala lo de la página web.
 3. Descarga la IA que revisa el diseño (~3 GB, tarda un rato).
 
+> ⚠️ Copia el nombre completo: **`qwen3-vl:4b-instruct`**. La versión sin `-instruct` no sirve (se queda "pensando" y nunca responde).
+
 ## 4. Ábrelo
 
 Abre **dos terminales** en la carpeta `QA-tester`:
