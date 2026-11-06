@@ -1,4 +1,4 @@
-# QA Tester visual
+# Lynx · QA visual con IA
 
 Sube una captura de tu página y te dice qué está mal: botones desalineados por 1px, colores que no quedan, texto difícil de leer y qué zona llama la atención.
 

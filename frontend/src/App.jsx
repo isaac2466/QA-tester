@@ -125,7 +125,7 @@ export default function App() {
     <div className="app">
       <header className="top">
         <div>
-          <h1>QA Tester visual</h1>
+          <h1>Lynx <span className="brand-tag">QA visual con IA</span></h1>
           <p className="muted">Sube una captura de tu página y encuentra los micro-detalles que no se ven a simple vista.</p>
         </div>
         <div className="status-group">
