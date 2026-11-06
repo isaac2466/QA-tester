@@ -149,6 +149,12 @@ def check_alignment(elems: list[Element], tol=4) -> list[Finding]:
             # el texto sólo tiene sentido revisarlo en su borde de anclaje
             if "texto" in (a.kind, b.kind) and attr not in ("left", "top", "cy"):
                 continue
+            # el centro de un texto vs el de un bloque vecino no dice nada (su caja depende de la fuente)
+            if a.kind != b.kind and attr in ("cx", "cy"):
+                continue
+            # dos textos con distinta altura de caja (letras con/sin "colita": p, g, y) no tienen el mismo centro
+            if a.kind == b.kind == "texto" and attr == "cy" and abs(a.h - b.h) >= 2:
+                continue
             va, vb = getattr(a, attr), getattr(b, attr)
             d = vb - va
             # margen de tolerancia del texto: crece con el tamaño de la fuente
@@ -194,6 +200,8 @@ def check_alignment(elems: list[Element], tol=4) -> list[Finding]:
             suggestion=f"{fix} para que su {name} coincida.",
             box=off.box,
             ref_box=ref.box,
+            fix={"type": "move", "box": off.box,
+                 "dx": -round(delta) if horizontal else 0, "dy": 0 if horizontal else -round(delta)},
         ))
     return out
 
@@ -243,6 +251,10 @@ def check_spacing(elems: list[Element]) -> list[Finding]:
                         suggestion=f"Ajusta la separación a {other}px "
                                    f"({'+' if other > g else '-'}{abs(other - g)}px) para mantener el ritmo.",
                         box=[x0, y0, x1 - x0, y1 - y0],
+                        # se mueve el segundo elemento (b) para que la separación sea `other`
+                        fix={"type": "move", "box": b.box,
+                             "dx": (other - g) if axis == "horizontal" else 0,
+                             "dy": (other - g) if axis == "vertical" else 0},
                     ))
                     break
     return out[:8]
@@ -266,5 +278,6 @@ def check_centering(elems: list[Element], width: int) -> list[Finding]:
                 suggestion=f"Si debe ir centrado, muévelo {abs(d):g}px a la {'izquierda' if d > 0 else 'derecha'} "
                            f"(revisa margin/padding asimétricos o un scrollbar).",
                 box=e.box,
+                fix={"type": "move", "box": e.box, "dx": -round(d), "dy": 0},
             ))
     return out[:5]

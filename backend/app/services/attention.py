@@ -100,6 +100,8 @@ def check_attention(rgb: np.ndarray, sal: np.ndarray, elems: list[Element]):
                 box=e.box,
             ))
 
+    for f in findings:
+        f.source = "dinov2"  # todo sale del mapa de atención del modelo
     return findings, {
         "focus_area_50": round(area_50, 3),
         "top_share": round(top_share, 3),

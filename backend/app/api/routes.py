@@ -7,13 +7,15 @@ from fastapi.concurrency import run_in_threadpool
 from PIL import Image, UnidentifiedImageError
 
 from app.core.config import MAX_IMAGE_SIDE
-from app.services import dino
+from app.services import dino, sam
 from app.services.attention import check_attention
 from app.services.colors import check_colors, check_contrast
 from app.services.compare import compare
+from app.services.components import check_components
 from app.services.findings import score
+from app.services.fixes import apply_fixes
 from app.services.layout import check_alignment, check_centering, check_spacing, detect_elements
-from app.services.render import annotate, heatmap_overlay, to_data_url
+from app.services.render import annotate, components_overlay, heatmap_overlay, to_data_url
 
 router = APIRouter(prefix="/api")
 
@@ -41,7 +43,7 @@ def _pack(findings, rgb):
 
 @router.get("/health")
 def health():
-    return {"status": "ok", "dino": dino.status()}
+    return {"status": "ok", "dino": dino.status(), "sam": sam.status()}
 
 
 @router.post("/analyze")
@@ -60,15 +62,31 @@ async def analyze(file: UploadFile = File(...)):
         findings += color_findings
         findings += check_contrast(rgb, elems)
 
-        attention, heat = None, None
+        attention, heat, groups, comps = None, None, [], None
         model = dino.get()
         if model:
             sal = model.saliency(img)
             att_findings, attention = check_attention(rgb, sal, elems)
             findings += att_findings
             heat = to_data_url(heatmap_overlay(rgb, sal))
+            comp_findings, groups = check_components(rgb, elems, model)
+            # si un elemento es más alto/ancho que sus gemelos, su "desalineado" es consecuencia: lo quitamos
+            resized = {tuple(f.box) for f in comp_findings if "alto" in f.title or "ancho" in f.title}
+            findings = [f for f in findings if not (f.category == "alineacion" and f.box and tuple(f.box) in resized)]
+            # DINOv2 decide qué se compara: un botón no tiene por qué alinearse con una tarjeta
+            group_of = {tuple(b): gi for gi, g in enumerate(groups) for b in g["boxes"]}
+            def same_kind(f):
+                if f.category != "alineacion" or not (f.box and f.ref_box):
+                    return True
+                ga, gb = group_of.get(tuple(f.box)), group_of.get(tuple(f.ref_box))
+                return ga is None or gb is None or ga == gb
+            findings = [f for f in findings if same_kind(f)]
+            findings += comp_findings
+            if groups:
+                comps = to_data_url(components_overlay(rgb, groups))
 
         dicts, annotated = _pack(findings, rgb)
+        fixed, applied = apply_fixes(rgb, dicts, sam.get())
         return {
             "filename": file.filename,
             "size": list(img.size),
@@ -77,7 +95,11 @@ async def analyze(file: UploadFile = File(...)):
             "palette": pal,
             "attention": attention,
             "elements_detected": len(elems),
-            "images": {"annotated": annotated, "heatmap": heat},
+            "components": [{"label": g["label"], "count": g["count"]} for g in groups],
+            "images": {"annotated": annotated, "heatmap": heat, "components": comps,
+                       "fixed": to_data_url(fixed) if applied else None},
+            "fixes_applied": applied,
+            "sam": sam.status(),
             "dino": dino.status(),
             "elapsed_ms": round((time.perf_counter() - t0) * 1000),
         }
@@ -102,6 +124,7 @@ async def compare_images(design: UploadFile = File(...), implementation: UploadF
             "stats": stats,
             "images": {
                 "annotated": annotated,
+                "implementation": to_data_url(impl_rgb),  # limpia (ya reescalada al tamaño del diseño)
                 "design": to_data_url(da),
                 "semantic": to_data_url(heatmap_overlay(impl_rgb, sem, 0.45)) if sem is not None else None,
             },

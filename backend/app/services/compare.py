@@ -72,23 +72,9 @@ def _merge_boxes(boxes: list[list[int]], gap=6) -> list[list[int]]:
     return boxes
 
 
-def compare(design: np.ndarray, impl: np.ndarray, dino=None):
+def _pixel_findings(design, impl, ga, gb, W, H) -> list[Finding]:
+    """Respaldo sin IA: diferencias píxel a píxel (se usa sólo si DINOv2 no está cargado)."""
     findings: list[Finding] = []
-    H, W = design.shape[:2]
-    resized = impl.shape[:2] != design.shape[:2]
-    if resized:
-        findings.append(Finding(
-            category="diferencia", severity="media",
-            title=f"Tamaños distintos: diseño {W}×{H}, implementación {impl.shape[1]}×{impl.shape[0]}",
-            detail="Se reescaló la implementación al tamaño del diseño para compararlas; las medidas en px "
-                   "son aproximadas. Para precisión de 1px exporta ambas al mismo tamaño (y mismo zoom).",
-            suggestion="Haz la captura con el mismo ancho de viewport y escala 1× (o 2× en ambas).",
-        ))
-        impl = cv2.resize(impl, (W, H), interpolation=cv2.INTER_AREA)
-
-    ga = cv2.cvtColor(design, cv2.COLOR_RGB2GRAY)
-    gb = cv2.cvtColor(impl, cv2.COLOR_RGB2GRAY)
-
     # 1) Desplazamiento global
     gdx, gdy, gresp = _shift(ga, gb)
     if gresp > 0.25 and (abs(gdx) >= 0.5 or abs(gdy) >= 0.5) and max(abs(gdx), abs(gdy)) < 0.2 * W:
@@ -109,7 +95,6 @@ def compare(design: np.ndarray, impl: np.ndarray, dino=None):
     boxes = [list(map(int, stats[i, :4])) for i in range(1, n) if stats[i, cv2.CC_STAT_AREA] >= 12]
     boxes = _snap_to_elements(boxes, detect_elements(design) + detect_elements(impl), W * H)
     boxes = sorted(_merge_boxes(boxes), key=lambda b: -b[2] * b[3])[:15]
-    changed_px = float((diff > THR).mean())
 
     for x, y, w, h in boxes:
         m = 10
@@ -149,6 +134,37 @@ def compare(design: np.ndarray, impl: np.ndarray, dino=None):
             box=box,
         ))
 
+    return findings
+
+
+def compare(design: np.ndarray, impl: np.ndarray, dino=None):
+    findings: list[Finding] = []
+    H, W = design.shape[:2]
+    resized = impl.shape[:2] != design.shape[:2]
+    if resized:
+        findings.append(Finding(
+            category="diferencia", severity="media",
+            title=f"Tamaños distintos: diseño {W}×{H}, implementación {impl.shape[1]}×{impl.shape[0]}",
+            detail="Se reescaló la implementación al tamaño del diseño para compararlas; las medidas en px "
+                   "son aproximadas. Para precisión de 1px exporta ambas al mismo tamaño (y mismo zoom).",
+            suggestion="Haz la captura con el mismo ancho de viewport y escala 1× (o 2× en ambas).",
+        ))
+        impl = cv2.resize(impl, (W, H), interpolation=cv2.INTER_AREA)
+
+    ga = cv2.cvtColor(design, cv2.COLOR_RGB2GRAY)
+    gb = cv2.cvtColor(impl, cv2.COLOR_RGB2GRAY)
+
+    diff = np.max(cv2.absdiff(design, impl), axis=2)
+    changed_px = float((diff > THR).mean())
+    match_stats = {}
+    if dino is not None:
+        # Motor principal: DINOv2 empareja los elementos y de ahí salen los hallazgos
+        from app.services.matching import compare_dino
+        dino_findings, match_stats = compare_dino(design, impl, dino)
+        findings += dino_findings
+    else:
+        findings += _pixel_findings(design, impl, ga, gb, W, H)
+
     # 3) Similitud semántica con DINOv2 (resistente a ruido de antialias / compresión)
     semantic_map, semantic_score = None, None
     if dino is not None:
@@ -161,4 +177,5 @@ def compare(design: np.ndarray, impl: np.ndarray, dino=None):
         "changed_pixels": round(changed_px, 4),
         "semantic_similarity": None if semantic_score is None else round(semantic_score, 4),
         "resized": resized,
+        **match_stats,
     }, semantic_map
