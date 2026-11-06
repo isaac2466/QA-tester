@@ -1,57 +1,86 @@
 import hashlib
 import hmac
 import secrets
-import sqlite3
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
-from app.core.config import DATABASE_PATH
+import mysql.connector
+from mysql.connector import Error
+
+from app.core.config import MYSQL_CONFIG
 
 
-def _connect() -> sqlite3.Connection:
-    connection = sqlite3.connect(DATABASE_PATH)
-    connection.row_factory = sqlite3.Row
-    return connection
+def _connect():
+    return mysql.connector.connect(**MYSQL_CONFIG)
 
 
 def initialize_database() -> None:
-    Path(DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
-    with _connect() as connection:
-        connection.executescript(
+    try:
+        connection = _connect()
+        cursor = connection.cursor()
+        cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT NOT NULL UNIQUE,
-                password_hash TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS sessions (
-                token_hash TEXT PRIMARY KEY,
-                user_id INTEGER NOT NULL REFERENCES users(id),
-                expires_at TEXT NOT NULL
-            );
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                email VARCHAR(254) NOT NULL UNIQUE,
+                password_hash VARCHAR(255) NOT NULL,
+                created_at DATETIME(6) NOT NULL
+            ) ENGINE=InnoDB
             """
         )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sessions (
+                token_hash CHAR(64) PRIMARY KEY,
+                user_id INT UNSIGNED NOT NULL,
+                expires_at DATETIME(6) NOT NULL,
+                CONSTRAINT fk_sessions_user
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                    ON DELETE CASCADE
+            ) ENGINE=InnoDB
+            """
+        )
+        connection.commit()
+    except Error as error:
+        raise RuntimeError(
+            "No se pudo conectar a MySQL. Revisa backend/.env y que MySQL Server esté iniciado."
+        ) from error
+    finally:
+        if "cursor" in locals():
+            cursor.close()
+        if "connection" in locals() and connection.is_connected():
+            connection.close()
 
 
 def create_user(email: str, password: str) -> dict:
     salt = secrets.token_bytes(16)
     password_hash = _hash_password(password, salt)
-    created_at = datetime.now(timezone.utc).isoformat()
-    with _connect() as connection:
-        cursor = connection.execute(
-            "INSERT INTO users (email, password_hash, created_at) VALUES (?, ?, ?)",
+    created_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    connection = _connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            "INSERT INTO users (email, password_hash, created_at) VALUES (%s, %s, %s)",
             (email, f"{salt.hex()}:{password_hash}", created_at),
         )
-        return {"id": cursor.lastrowid, "email": email, "created_at": created_at}
+        connection.commit()
+        return {"id": cursor.lastrowid, "email": email, "created_at": created_at.isoformat()}
+    finally:
+        cursor.close()
+        connection.close()
 
 
-def find_user_by_email(email: str) -> sqlite3.Row | None:
-    with _connect() as connection:
-        return connection.execute(
-            "SELECT id, email, password_hash, created_at FROM users WHERE email = ?",
+def find_user_by_email(email: str) -> dict | None:
+    connection = _connect()
+    try:
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT id, email, password_hash, created_at FROM users WHERE email = %s",
             (email,),
-        ).fetchone()
+        )
+        return cursor.fetchone()
+    finally:
+        cursor.close()
+        connection.close()
 
 
 def verify_password(password: str, stored_hash: str) -> bool:
@@ -62,33 +91,54 @@ def verify_password(password: str, stored_hash: str) -> bool:
 
 def create_session(user_id: int) -> tuple[str, datetime]:
     token = secrets.token_urlsafe(32)
-    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
-    with _connect() as connection:
-        connection.execute(
-            "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)",
-            (_token_hash(token), user_id, expires_at.isoformat()),
+    expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=7)
+    connection = _connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (%s, %s, %s)",
+            (_token_hash(token), user_id, expires_at),
         )
-    return token, expires_at
+        connection.commit()
+        return token, expires_at.replace(tzinfo=timezone.utc)
+    finally:
+        cursor.close()
+        connection.close()
 
 
-def get_user_by_token(token: str) -> sqlite3.Row | None:
-    with _connect() as connection:
-        row = connection.execute(
+def get_user_by_token(token: str) -> dict | None:
+    connection = _connect()
+    try:
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(
             """
             SELECT users.id, users.email, users.created_at, sessions.expires_at
             FROM sessions JOIN users ON users.id = sessions.user_id
-            WHERE sessions.token_hash = ?
+            WHERE sessions.token_hash = %s
             """,
             (_token_hash(token),),
-        ).fetchone()
-    if not row or datetime.fromisoformat(row["expires_at"]) <= datetime.now(timezone.utc):
+        )
+        row = cursor.fetchone()
+    finally:
+        cursor.close()
+        connection.close()
+    if not row:
+        return None
+    expires_at = row["expires_at"].replace(tzinfo=timezone.utc)
+    if expires_at <= datetime.now(timezone.utc):
         return None
     return row
 
 
 def delete_session(token: str) -> None:
-    with _connect() as connection:
-        connection.execute("DELETE FROM sessions WHERE token_hash = ?", (_token_hash(token),))
+    connection = _connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("DELETE FROM sessions WHERE token_hash = %s", (_token_hash(token),))
+        connection.commit()
+    finally:
+        cursor.close()
+        connection.close()
 
 
 def _hash_password(password: str, salt: bytes) -> str:

@@ -35,9 +35,6 @@ export default function App() {
     currentUser().then(setUser).catch(() => setUser(null));
   }, []);
 
-  if (user === undefined) return null;
-  if (!user) return <Login onAuthenticated={setUser} />;
-
   // Restaurar la última sesión al recargar (F5)
   useEffect(() => {
     load("session").then((s) => {
@@ -108,6 +105,9 @@ export default function App() {
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
   }, [mode, design]);
+
+  if (user === undefined) return null;
+  if (!user) return <Login onAuthenticated={setUser} />;
 
   const ready = mode === "analyze" ? file : design && impl;
   const missing = mode === "analyze"

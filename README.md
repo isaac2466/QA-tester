@@ -31,6 +31,24 @@ El primero instala todo lo de Python, incluida la IA (tarda unos minutos: baja ~
 
 ## 4. Ábrelo
 
+### Configurar MySQL local
+
+MySQL Workbench es la interfaz; asegúrate de tener instalado y ejecutándose **MySQL Server**.
+En MySQL Workbench ejecuta el contenido de /database:
+qa_tester
+
+Copia `backend/.env.example` como `backend/.env` y coloca la contraseña de tu usuario local:
+
+```env
+MYSQL_HOST=127.0.0.1
+MYSQL_PORT=3306
+MYSQL_USER=root
+MYSQL_PASSWORD=tu_contraseña_de_mysql
+MYSQL_DATABASE=qa_tester
+```
+
+El backend creará automáticamente las tablas `users` y `sessions` al iniciar. Nunca subas `backend/.env` a Git.
+
 Abre **dos terminales** en la carpeta `QA-tester`:
 
 **Terminal 1:**

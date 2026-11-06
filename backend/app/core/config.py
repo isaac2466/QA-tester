@@ -1,6 +1,10 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
 # Modelo DINOv2. La variante "with-registers" produce mapas de atención mucho más
 # limpios (sin los artefactos de alta norma del DINOv2 original).
 DINO_MODEL = os.getenv("DINO_MODEL", "facebook/dinov2-with-registers-small")
@@ -14,4 +18,10 @@ DINO_MAX_HEIGHT = int(os.getenv("DINO_MAX_HEIGHT", "1344"))
 MAX_IMAGE_SIDE = int(os.getenv("MAX_IMAGE_SIDE", "4096"))
 
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
-DATABASE_PATH = os.getenv("DATABASE_PATH", str(Path(__file__).resolve().parents[2] / "data" / "users.db"))
+MYSQL_CONFIG = {
+    "host": os.getenv("MYSQL_HOST", "127.0.0.1"),
+    "port": int(os.getenv("MYSQL_PORT", "3306")),
+    "user": os.getenv("MYSQL_USER", "root"),
+    "password": os.getenv("MYSQL_PASSWORD", ""),
+    "database": os.getenv("MYSQL_DATABASE", "qa_tester"),
+}

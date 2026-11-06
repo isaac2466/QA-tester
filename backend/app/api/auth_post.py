@@ -1,4 +1,4 @@
-import sqlite3
+from mysql.connector import IntegrityError
 
 from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
@@ -26,7 +26,7 @@ def register(credentials: Credentials):
         raise HTTPException(status_code=409, detail="Ese correo ya está registrado.")
     try:
         user = create_user(email, credentials.password)
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         raise HTTPException(status_code=409, detail="Ese correo ya está registrado.")
     token, expires_at = create_session(user["id"])
     return {"token": token, "expires_at": expires_at, "user": user}
