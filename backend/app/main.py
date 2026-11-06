@@ -23,7 +23,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="QA Tester visual (DINOv2)", lifespan=lifespan)
+app = FastAPI(title="Lynx · QA visual con IA", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
