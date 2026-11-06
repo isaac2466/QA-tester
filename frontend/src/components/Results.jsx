@@ -7,6 +7,15 @@ const CATEGORY = {
   contraste: "Contraste",
   atencion: "Atención visual",
   diferencia: "Diferencia con el diseño",
+  tipografia: "Tipografía",
+  jerarquia: "Jerarquía visual",
+  consistencia: "Consistencia",
+};
+
+const VERDICT = {
+  confirmado: { label: "✓ Confirmado por Qwen3-VL", cls: "v-ok" },
+  sin_verificar: { label: "Medición sin verificar", cls: "v-unk" },
+  descartado: { label: "✕ Descartado por Qwen3-VL", cls: "v-no" },
 };
 
 function ScoreRing({ score }) {
@@ -19,25 +28,55 @@ function ScoreRing({ score }) {
   );
 }
 
+function FindingItem({ f, active, setActive }) {
+  const v = VERDICT[f.verdict ?? "sin_verificar"];
+  return (
+    <li
+      className={`finding sev-${f.severity} ${active?.id === f.id ? "active" : ""} ${f.verdict === "descartado" ? "discarded" : ""}`}
+      onMouseEnter={() => setActive(f)}
+      onMouseLeave={() => setActive(null)}
+    >
+      <div className="finding-top">
+        <span className="badge">{f.id}</span>
+        <span className="cat">{CATEGORY[f.category] ?? f.category}</span>
+        <span className="sev">{f.severity}</span>
+      </div>
+      <h3>{f.title}</h3>
+      <p>{f.detail}</p>
+      <p className="fix">→ {f.suggestion}</p>
+      <div className="verdict-row">
+        <span className={`verdict ${f.source === "ia" ? "v-ia" : v.cls}`}>
+          {f.source === "ia" ? "★ Observación de Qwen3-VL" : v.label}
+        </span>
+        {f.verdict_reason && <span className="muted reason">{f.verdict_reason}</span>}
+      </div>
+    </li>
+  );
+}
+
 export default function Results({ data, views }) {
   const available = views.filter((v) => data.images[v.key]);
   const [view, setView] = useState(available[0]?.key);
   const [active, setActive] = useState(null);
-  const counts = data.findings.reduce((a, f) => ({ ...a, [f.severity]: (a[f.severity] ?? 0) + 1 }), {});
+  const [showDiscarded, setShowDiscarded] = useState(false);
+
+  const visible = data.findings.filter((f) => f.verdict !== "descartado");
+  const discarded = data.findings.filter((f) => f.verdict === "descartado");
+  const counts = visible.reduce((a, f) => ({ ...a, [f.severity]: (a[f.severity] ?? 0) + 1 }), {});
 
   return (
     <section className="results">
       <header className="results-head">
         <ScoreRing score={data.score} />
         <div>
-          <h2>{data.findings.length ? `${data.findings.length} hallazgos` : "Sin hallazgos 🎉"}</h2>
+          <h2>{visible.length ? `${visible.length} hallazgos` : "Sin hallazgos 🎉"}</h2>
           <p className="muted">
-            {counts.alta ?? 0} altos · {counts.media ?? 0} medios · {counts.baja ?? 0} bajos · {data.elapsed_ms} ms
-            {data.elements_detected != null && ` · ${data.elements_detected} elementos detectados`}
+            {counts.alta ?? 0} altos · {counts.media ?? 0} medios · {counts.baja ?? 0} bajos · {(data.elapsed_ms / 1000).toFixed(1)} s
+            {discarded.length > 0 && ` · ${discarded.length} falsos positivos descartados por Qwen3-VL`}
           </p>
-          {!data.dino?.loaded && (
+          {data.vlm && !data.vlm.available && (
             <p className="warn-box">
-              DINOv2 no está cargado: se omitió el análisis de atención/semántico. Motivo: {data.dino?.error ?? "desconocido"}
+              Sin revisión de Qwen3-VL: los hallazgos son mediciones automáticas y pueden incluir falsos positivos. {data.vlm.error}
             </p>
           )}
           {data.stats?.semantic_similarity != null && (
@@ -48,6 +87,12 @@ export default function Results({ data, views }) {
           )}
         </div>
       </header>
+
+      {data.summary && (
+        <div className="summary">
+          <strong>Opinión de Qwen3-VL:</strong> {data.summary}
+        </div>
+      )}
 
       <div className="results-body">
         <div className="viewer">
@@ -84,25 +129,23 @@ export default function Results({ data, views }) {
           )}
         </div>
 
-        <ol className="findings">
-          {data.findings.map((f) => (
-            <li
-              key={f.id}
-              className={`finding sev-${f.severity} ${active?.id === f.id ? "active" : ""}`}
-              onMouseEnter={() => setActive(f)}
-              onMouseLeave={() => setActive(null)}
-            >
-              <div className="finding-top">
-                <span className="badge">{f.id}</span>
-                <span className="cat">{CATEGORY[f.category] ?? f.category}</span>
-                <span className={`sev`}>{f.severity}</span>
-              </div>
-              <h3>{f.title}</h3>
-              <p>{f.detail}</p>
-              <p className="fix">→ {f.suggestion}</p>
-            </li>
-          ))}
-        </ol>
+        <div>
+          <ol className="findings">
+            {visible.map((f) => <FindingItem key={f.id} f={f} active={active} setActive={setActive} />)}
+          </ol>
+          {discarded.length > 0 && (
+            <>
+              <button className="ghost discard-toggle" onClick={() => setShowDiscarded((s) => !s)}>
+                {showDiscarded ? "Ocultar" : "Ver"} {discarded.length} descartados por Qwen3-VL
+              </button>
+              {showDiscarded && (
+                <ol className="findings">
+                  {discarded.map((f) => <FindingItem key={f.id} f={f} active={active} setActive={setActive} />)}
+                </ol>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </section>
   );

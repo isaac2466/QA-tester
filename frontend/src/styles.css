@@ -47,6 +47,7 @@ code { font: 12px ui-monospace, Consolas, monospace; }
 .app { max-width: 1280px; margin: 0 auto; padding: 28px 16px 64px; }
 .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
 
+.status-group { display: flex; gap: 6px; flex-wrap: wrap; }
 .status { font-size: 13px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); }
 .status::before { content: "●"; margin-right: 6px; }
 .status.ok::before { color: var(--good); }
@@ -124,4 +125,15 @@ code { font: 12px ui-monospace, Consolas, monospace; }
 .finding-top { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .badge { background: var(--sev); color: #fff; border-radius: 4px; min-width: 20px; text-align: center; font-weight: 700; padding: 0 5px; }
 .cat { color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.verdict-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; margin-top: 6px; }
+.verdict { font-size: 12px; font-weight: 600; border-radius: 999px; padding: 1px 8px; border: 1px solid currentColor; }
+.v-ok { color: var(--good); }
+.v-ia { color: var(--accent); }
+.v-unk { color: var(--muted); }
+.v-no { color: var(--alta); }
+.reason { font-size: 13px; }
+.finding.discarded { opacity: .65; }
+.discard-toggle { margin: 12px 0 10px; }
+.summary { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; }
+.toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
 .sev { margin-left: auto; color: var(--sev); font-weight: 600; text-transform: capitalize; }

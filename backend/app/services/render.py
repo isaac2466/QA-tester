@@ -23,7 +23,7 @@ def annotate(rgb: np.ndarray, findings: list[dict]) -> np.ndarray:
     for f in findings:
         if not f.get("box"):
             continue
-        color = COLORS[f["severity"]]
+        color = COLORS.get(f["severity"], COLORS["baja"])
         x, y, w, h = f["box"]
         if f.get("ref_box"):
             rx, ry, rw, rh = f["ref_box"]

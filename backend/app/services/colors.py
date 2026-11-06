@@ -86,6 +86,18 @@ def _bbox_of_color(rgb: np.ndarray, color) -> list[int] | None:
     return [int(x), int(y), int(w), int(h)]
 
 
+def _is_solid_surface(rgb: np.ndarray, color) -> bool:
+    """¿El color forma una superficie sólida (tarjeta, botón, fondo) y no una franja de degradado?"""
+    mask = np.all(rgb == np.asarray(color, dtype=rgb.dtype), axis=-1).astype(np.uint8)
+    n, _, stats, _ = cv2.connectedComponentsWithStats(mask, 4)
+    if n <= 1:
+        return False
+    i = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    x, y, w, h, area = stats[i]
+    # una superficie real es grande y "rellena" su caja; un degradado deja franjas finas
+    return area >= max(600, 0.001 * mask.size) and area / float(w * h) > 0.6 and min(w, h) >= 12
+
+
 def check_colors(rgb: np.ndarray):
     pal, flat, is_flat = palette(rgb)
     findings: list[Finding] = []
@@ -99,7 +111,7 @@ def check_colors(rgb: np.ndarray):
                 de = delta_e(c1, c2)
                 if page_bg in (hex_of(c1), hex_of(c2)):
                     continue
-                if 0.3 < de < 3.5 and min(s1, s2) > 0.002:
+                if 0.3 < de < 3.5 and min(s1, s2) > 0.002 and                         _is_solid_surface(rgb, c1) and _is_solid_surface(rgb, c2):
                     minor = c2 if s2 < s1 else c1
                     major = c1 if s2 < s1 else c2
                     k = hex_of(minor)
@@ -164,6 +176,9 @@ def check_contrast(rgb: np.ndarray, elems: list[Element]) -> list[Finding]:
         if len(crop) < 30:
             continue
         ring = np.concatenate([rgb[y0, x0:x1], rgb[y1 - 1, x0:x1], rgb[y0:y1, x0], rgb[y0:y1, x1 - 1]])
+        # el texto real va sobre un fondo liso; si el borde varía mucho es una imagen/degradado
+        if ring.astype(np.float32).std(axis=0).max() > 10:
+            continue
         bg = np.median(ring.astype(np.float32), axis=0)
         dist = np.linalg.norm(crop - bg, axis=1)
         if dist.max() < 10:

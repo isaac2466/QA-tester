@@ -2,12 +2,12 @@ import io
 import time
 
 import numpy as np
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from PIL import Image, UnidentifiedImageError
 
 from app.core.config import MAX_IMAGE_SIDE
-from app.services import dino
+from app.services import dino, vlm
 from app.services.attention import check_attention
 from app.services.colors import check_colors, check_contrast
 from app.services.compare import compare
@@ -18,6 +18,7 @@ from app.services.render import annotate, heatmap_overlay, to_data_url
 router = APIRouter(prefix="/api")
 
 ORDER = {"alta": 0, "media": 1, "baja": 2}
+VERDICT_ORDER = {"confirmado": 0, "sin_verificar": 1, "descartado": 2}
 
 
 async def _read_image(file: UploadFile) -> Image.Image:
@@ -34,18 +35,19 @@ async def _read_image(file: UploadFile) -> Image.Image:
 
 
 def _pack(findings, rgb):
-    findings.sort(key=lambda f: ORDER[f.severity])
+    findings.sort(key=lambda f: (VERDICT_ORDER.get(f.verdict, 1), ORDER.get(f.severity, 1)))
     dicts = [f.to_dict(i + 1) for i, f in enumerate(findings)]
-    return dicts, to_data_url(annotate(rgb, dicts))
+    # los descartados por la IA no se dibujan en la imagen
+    return dicts, to_data_url(annotate(rgb, [d for d in dicts if d["verdict"] != "descartado"]))
 
 
 @router.get("/health")
 def health():
-    return {"status": "ok", "dino": dino.status()}
+    return {"status": "ok", "dino": dino.status(), "vlm": vlm.status()}
 
 
 @router.post("/analyze")
-async def analyze(file: UploadFile = File(...)):
+async def analyze(file: UploadFile = File(...), ia: bool = Query(True, description="Revisar con el modelo de visión local")):
     img = await _read_image(file)
 
     def run():
@@ -68,17 +70,43 @@ async def analyze(file: UploadFile = File(...)):
             findings += att_findings
             heat = to_data_url(heatmap_overlay(rgb, sal))
 
+        # Revisión con IA: verifica cada medición y añade su propia revisión de diseño
+        vlm_info = vlm.status() if ia else {"available": False, "error": "Desactivada en esta petición."}
+        summary = None
+        if vlm_info["available"]:
+            findings.sort(key=lambda f: ORDER[f.severity])
+            cands = [f.to_dict(i + 1) for i, f in enumerate(findings)]
+            try:
+                t_ia = time.perf_counter()
+                confirmed, rejected, reasons, new, summary = vlm.review(
+                    annotate(rgb, cands), cands, img.size)
+                for i, f in enumerate(findings, start=1):
+                    if i in confirmed:
+                        f.verdict = "confirmado"
+                    elif i in rejected:
+                        f.verdict = "descartado"
+                    f.verdict_reason = reasons.get(i, "")
+                for f in new:
+                    f.verdict = "confirmado"
+                findings += new
+                vlm_info["elapsed_ms"] = round((time.perf_counter() - t_ia) * 1000)
+            except Exception as e:  # la IA falló: devolvemos las mediciones sin verificar
+                vlm_info = {"available": False, "model": vlm_info.get("model"),
+                            "error": f"La IA falló: {type(e).__name__}: {e}"}
+
         dicts, annotated = _pack(findings, rgb)
         return {
             "filename": file.filename,
             "size": list(img.size),
             "score": score(findings),
+            "summary": summary,
             "findings": dicts,
             "palette": pal,
             "attention": attention,
             "elements_detected": len(elems),
             "images": {"annotated": annotated, "heatmap": heat},
             "dino": dino.status(),
+            "vlm": vlm_info,
             "elapsed_ms": round((time.perf_counter() - t0) * 1000),
         }
 

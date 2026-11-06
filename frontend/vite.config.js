@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    proxy: { "/api": "http://127.0.0.1:8000" },
+    // timeout amplio: la IA local en CPU puede tardar varios minutos por imagen
+    proxy: { "/api": { target: "http://127.0.0.1:8000", timeout: 600000, proxyTimeout: 600000 } },
   },
 });

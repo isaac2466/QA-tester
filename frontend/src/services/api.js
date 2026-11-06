@@ -8,10 +8,10 @@ async function post(path, formData) {
   return data;
 }
 
-export async function analyzeImage(file) {
+export async function analyzeImage(file, { ia = true } = {}) {
   const formData = new FormData();
   formData.append("file", file);
-  return post("/api/analyze", formData);
+  return post(`/api/analyze?ia=${ia}`, formData);
 }
 
 export async function compareImages(design, implementation) {

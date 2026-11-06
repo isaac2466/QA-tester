@@ -23,6 +23,17 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [status, setStatus] = useState(null);
+  const [useIa, setUseIa] = useState(true);
+  const [elapsed, setElapsed] = useState(0);
+
+  // contador de segundos mientras analiza
+  useEffect(() => {
+    if (!loading) return;
+    setElapsed(0);
+    const t0 = Date.now();
+    const id = setInterval(() => setElapsed(Math.round((Date.now() - t0) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [loading]);
   const [hydrated, setHydrated] = useState(false);
   const resultsRef = useRef(null);
   const justRan = useRef(false);
@@ -70,7 +81,7 @@ export default function App() {
     setError(null);
     const m = mode;
     try {
-      const data = m === "analyze" ? await analyzeImage(file) : await compareImages(design, impl);
+      const data = m === "analyze" ? await analyzeImage(file, { ia: useIa }) : await compareImages(design, impl);
       justRan.current = true;
       setResults((r) => ({ ...r, [m]: data }));
     } catch (e) {
@@ -117,10 +128,20 @@ export default function App() {
           <h1>QA Tester visual</h1>
           <p className="muted">Sube una captura de tu página y encuentra los micro-detalles que no se ven a simple vista.</p>
         </div>
-        <span className={`status ${status?.dino?.loaded ? "ok" : status?.status === "down" ? "down" : "partial"}`}>
-          {!status ? "Conectando…" : status.status === "down" ? "Backend apagado"
-            : status.dino.loaded ? `DINOv2 listo (${status.dino.device})` : "DINOv2 no cargado"}
-        </span>
+        <div className="status-group">
+          {!status ? <span className="status partial">Conectando…</span>
+            : status.status === "down" ? <span className="status down">Backend apagado</span>
+            : (
+              <>
+                <span className={`status ${status.vlm?.available ? "ok" : "partial"}`} title={status.vlm?.error ?? ""}>
+                  {status.vlm?.available ? `Qwen3-VL listo` : "Qwen3-VL no disponible"}
+                </span>
+                <span className={`status ${status.dino?.loaded ? "ok" : "partial"}`} title={status.dino?.error ?? ""}>
+                  {status.dino?.loaded ? "DINOv2 listo" : "DINOv2 no cargado"}
+                </span>
+              </>
+            )}
+        </div>
       </header>
 
       <div className="tabs">
@@ -156,8 +177,17 @@ export default function App() {
 
       <div className="actions">
         <button className="primary" disabled={!ready || loading} onClick={run}>
-          {loading ? "Analizando…" : mode === "analyze" ? "Analizar" : "Comparar"}
+          {loading ? `Analizando… ${elapsed}s` : mode === "analyze" ? "Analizar" : "Comparar"}
         </button>
+        {mode === "analyze" && (
+          <label className="toggle" title="Qwen3-VL verifica cada medición, descarta falsos positivos y revisa el diseño. En CPU tarda 1-4 minutos. DINOv2 (mapa de atención) siempre se usa.">
+            <input type="checkbox" checked={useIa} onChange={(e) => setUseIa(e.target.checked)} disabled={loading} />
+            Revisión de diseño con Qwen3-VL (lenta)
+          </label>
+        )}
+        {loading && mode === "analyze" && useIa && (
+          <span className="muted">Qwen3-VL corre en tu CPU: puede tardar 1-4 minutos.</span>
+        )}
         {(mode === "analyze" ? file : design || impl) && (
           <button className="ghost" onClick={reset} disabled={loading}>Limpiar</button>
         )}

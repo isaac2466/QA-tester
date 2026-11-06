@@ -146,8 +146,19 @@ def check_alignment(elems: list[Element], tol=4) -> list[Finding]:
                     continue
             elif _overlap(a.x, a.right, b.x, b.right) > 0:
                 continue  # alineación de fila: uno al lado del otro
-            # el texto sólo tiene sentido revisarlo en su borde de anclaje
-            if "texto" in (a.kind, b.kind) and attr not in ("left", "top", "cy"):
+            # sólo se comparan elementos del mismo tipo (un icono vs un texto no es un error)
+            if a.kind != b.kind:
+                continue
+            # texto: sólo el borde izquierdo de líneas apiladas. El borde superior depende
+            # de si la palabra tiene mayúsculas/ascendentes, así que no sirve para medir.
+            if a.kind == "texto" and attr != "left":
+                continue
+            # sólo vecinos cercanos: dos cosas lejanas a 2px es casualidad, no un error
+            if horizontal:
+                gap = max(a.y, b.y) - min(a.bottom, b.bottom)
+            else:
+                gap = max(a.x, b.x) - min(a.right, b.right)
+            if gap > 120:
                 continue
             va, vb = getattr(a, attr), getattr(b, attr)
             d = vb - va
@@ -252,11 +263,11 @@ def check_centering(elems: list[Element], width: int) -> list[Finding]:
     out = []
     mid = width / 2
     for e in elems:
-        if e.w > 0.9 * width:
+        if e.kind != "bloque" or e.w > 0.9 * width:
             continue
         d = e.cx - mid
-        min_d = 2 if e.kind == "texto" else 1
-        if min_d <= abs(d) <= 4:
+        # 1px suele ser redondeo (escala de Windows al 125%, anchos impares)
+        if 2 <= abs(d) <= 4:
             side = "derecha" if d > 0 else "izquierda"
             out.append(Finding(
                 category="alineacion",
