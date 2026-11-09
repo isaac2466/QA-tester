@@ -1,13 +1,16 @@
+import asyncio
 import io
+import json
+import threading
 import time
 
 import numpy as np
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from PIL import Image, UnidentifiedImageError
 
 from app.core.config import MAX_IMAGE_SIDE
-from app.services import dino, sam
+from app.services import dino, sam, vlm
 from app.services.attention import check_attention
 from app.services.colors import check_colors, check_contrast
 from app.services.compare import compare
@@ -43,7 +46,7 @@ def _pack(findings, rgb):
 
 @router.get("/health")
 def health():
-    return {"status": "ok", "dino": dino.status(), "sam": sam.status()}
+    return {"status": "ok", "dino": dino.status(), "sam": sam.status(), "qwen": vlm.status()}
 
 
 @router.post("/analyze")
@@ -133,3 +136,49 @@ async def compare_images(design: UploadFile = File(...), implementation: UploadF
         }
 
     return await run_in_threadpool(run)
+
+
+@router.post("/explain")
+async def explain(request: Request, file: UploadFile = File(...), findings: str = Form(...)):
+    """Qwen3-VL explica cada hallazgo con más detalle y dice si cree que es un falso positivo.
+
+    Va aparte de /analyze porque en CPU tarda: el frontend muestra primero lo de DINOv2 y
+    luego manda los hallazgos a Qwen en lotes pequeños.
+    """
+    img = await _read_image(file)
+    try:
+        items = json.loads(findings)
+        assert isinstance(items, list)
+    except (json.JSONDecodeError, AssertionError):
+        raise HTTPException(400, "'findings' debe ser una lista JSON de hallazgos.")
+    st = vlm.status()
+    if not st["available"]:
+        raise HTTPException(503, st["error"])
+
+    cancel = threading.Event()
+
+    def run():
+        t0 = time.perf_counter()
+        try:
+            out = vlm.explain(np.asarray(img), items[:3], cancel)
+        except vlm.Cancelled:
+            return None
+        except RuntimeError as e:
+            print("Qwen:", e)
+            raise HTTPException(502, str(e))
+        except OSError as e:  # timeout o Ollama se cerró a medio camino
+            print("Qwen sin respuesta:", e)
+            raise HTTPException(504, f"Qwen no respondió a tiempo ({e}).")
+        return {"explanations": out, "model": st["model"],
+                "elapsed_ms": round((time.perf_counter() - t0) * 1000)}
+
+    # Si el navegador cancela (análisis nuevo o pestaña cerrada) cortamos a Qwen para liberarlo.
+    task = asyncio.ensure_future(run_in_threadpool(run))
+    while not task.done():
+        await asyncio.wait({task}, timeout=1)
+        if not task.done() and await request.is_disconnected():
+            cancel.set()
+    result = task.result()
+    if result is None:
+        raise HTTPException(499, "Cancelado")
+    return result
