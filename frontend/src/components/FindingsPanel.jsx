@@ -11,9 +11,91 @@ function Score({ value }) {
   );
 }
 
+const VERDICT = {
+  real: ["real", "Confirmado", "Qwen revisó la zona y cree que sí es un error real"],
+  falso_positivo: ["fp", "Posible falso positivo", "Qwen cree que la herramienta se equivocó aquí"],
+  dudoso: ["doubt", "Dudoso", "Qwen no alcanzó a verlo con claridad"],
+};
+
+const seconds = (ms) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
+
+/** Una fila por motor de IA: nombre a la izquierda, qué hizo a la derecha. */
+function Engine({ name, children, tone }) {
+  return (
+    <div className={`engine-row ${tone ?? ""}`}>
+      <span className="engine-name">{name}</span>
+      <div className="engine-info">{children}</div>
+    </div>
+  );
+}
+
+function QwenRow({ qwen, qwenStatus, explained, falsePositives, onExplain, onIgnoreMany }) {
+  const running = qwen && !qwen.error && qwen.done < qwen.total;
+  if (running) {
+    const pct = qwen.total ? Math.round((qwen.done / qwen.total) * 100) : 0;
+    const mins = Math.max(1, Math.round(((qwen.total - qwen.done) * 40) / 60)); // ~40 s por hallazgo en CPU
+    return (
+      <Engine name="Qwen" tone="busy">
+        <span>Explicando… <b>{qwen.done}/{qwen.total}</b> <span className="muted">· faltan ~{mins} min</span>
+          {qwen.failed > 0 && <span className="warn-text"> · {qwen.failed} fallaron</span>}</span>
+        <span className="progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+          <i style={{ width: `${Math.max(pct, 3)}%` }} />
+        </span>
+      </Engine>
+    );
+  }
+  if (qwen?.error && explained === 0) {
+    return (
+      <Engine name="Qwen" tone="warn">
+        <span className="warn-text">No pudo explicar: {qwen.error}</span>
+        {onExplain && <button type="button" className="link" onClick={onExplain}>Reintentar</button>}
+      </Engine>
+    );
+  }
+  if (explained > 0) {
+    return (
+      <Engine name="Qwen" tone={qwen?.error ? "warn" : ""}>
+        <span>
+          Explicó <b>{explained}</b>
+          {falsePositives.length > 0
+            ? <> · <b className="fp-text">{falsePositives.length} {falsePositives.length === 1 ? "posible falso positivo" : "posibles falsos positivos"}</b></>
+            : " · sin falsos positivos"}
+        </span>
+        {falsePositives.length > 0 && (
+          <button type="button" className="link" onClick={() => onIgnoreMany(falsePositives)}>Ocultarlos</button>
+        )}
+        {qwen?.error && (
+          <span className="engine-sub">
+            <span className="warn-text">{qwen.error}</span>
+            {onExplain && <button type="button" className="link" onClick={onExplain}>Reintentar esos</button>}
+          </span>
+        )}
+      </Engine>
+    );
+  }
+  if (!qwenStatus?.available) {
+    return (
+      <Engine name="Qwen" tone="off">
+        <span className="muted" title={qwenStatus?.error}>No disponible · abre Ollama</span>
+      </Engine>
+    );
+  }
+  return (
+    <Engine name="Qwen" tone="off">
+      <span className="muted">Revisión rápida: sin explicaciones.</span>
+      {onExplain && <button type="button" className="link" onClick={onExplain}>Pedir a Qwen</button>}
+    </Engine>
+  );
+}
+
 export default function FindingsPanel({
-  mode, result, findings, ignoredCount, onIgnore, onConfirm, marked = {}, discarded = [], learning, onRestore, selected, onSelect, onHover, onLocate, onExport,
+  mode, result, findings, ignoredCount, onIgnore, onIgnoreMany, onConfirm, marked = {}, discarded = [], learning,
+  onRestore, selected, onSelect, onHover, onLocate, onExport,
+  qwen, qwenStatus, onExplain,
 }) {
+  const explanations = result.qwen ?? {};
+  const explained = Object.keys(explanations).length;
+  const falsePositives = findings.filter((f) => explanations[f.id]?.veredicto === "falso_positivo").map((f) => f.id);
   const [sev, setSev] = useState("all");
   const [cat, setCat] = useState("all");
   const [showDiscarded, setShowDiscarded] = useState(false);
@@ -21,56 +103,62 @@ export default function FindingsPanel({
   const byCat = countBy(findings, "category");
   const shown = findings.filter((f) => (sev === "all" || f.severity === sev) && (cat === "all" || f.category === cat));
   const chips = [["all", "Todas", findings.length], ...["alta", "media", "baja"].filter((s) => bySev[s]).map((s) => [s, SEVERITY[s], bySev[s]])];
+  const byDino = findings.filter((f) => f.source === "dinov2").length;
 
   return (
     <aside className="card panel">
       <header className="panel-head">
         <div>
-          <h2><Flag size={22} /> {mode === "analyze" ? "Hallazgos" : "Diferencias detectadas"}</h2>
+          <h2><Flag size={20} /> {mode === "analyze" ? "Hallazgos" : "Diferencias"}</h2>
           <p className="muted">
             {findings.length ? `${findings.length} ${findings.length === 1 ? "zona" : "zonas"} para revisar` : "Todo se ve bien"}
-            {` · ${result.elapsed_ms} ms`}
+            {` · ${seconds(result.elapsed_ms)}`}
           </p>
         </div>
         <Score value={scoreOf(findings)} />
       </header>
 
-      {(result.components?.length > 0 || result.stats?.semantic_similarity != null || !result.dino?.loaded) && (
-        <div className="ai-box">
-          <Sparkles size={16} />
-          <div>
-            {findings.length > 0 && (
-              <p><b>{findings.filter((f) => f.source === "dinov2").length} de {findings.length}</b> hallazgos los encontró DINOv2.</p>
-            )}
-            {result.fixes_applied?.length > 0 && (
-              <p>La <b>vista corregida</b> aplica {result.fixes_applied.length} cambios
-                {result.sam?.loaded ? " con las siluetas de SAM 2.1" : " (sin SAM: recortes rectangulares)"}.</p>
-            )}
-            {result.stats?.matched != null && (
-              <p>DINOv2 emparejó <b>{result.stats.matched}</b> de {result.stats.design_elements} elementos del diseño con la implementación.</p>
-            )}
-            {result.components?.length > 0 && (
-              <p>DINOv2 reconoció: {result.components.map((c) => `${c.count} ${c.label}`).join(" · ")}</p>
-            )}
-            {result.stats?.semantic_similarity != null && (
-              <p>Parecido semántico (DINOv2): <b>{(result.stats.semantic_similarity * 100).toFixed(1)}%</b> ·
-                píxeles distintos: <b>{(result.stats.changed_pixels * 100).toFixed(2)}%</b></p>
-            )}
-            {!result.dino?.loaded && <p className="warn-text">DINOv2 no está cargado; se omitió el análisis con IA. {result.dino?.error}</p>}
-          </div>
-        </div>
-      )}
+      <section className="engines" aria-label="Motores de IA">
+        {result.dino?.loaded ? (
+          <Engine name="DINOv2">
+            <span>
+              {findings.length > 0 && <><b>{byDino}/{findings.length}</b> hallazgos</>}
+              {result.stats?.matched != null && <> · emparejó <b>{result.stats.matched}/{result.stats.design_elements}</b></>}
+              {result.stats?.semantic_similarity != null && <> · parecido <b>{(result.stats.semantic_similarity * 100).toFixed(0)}%</b></>}
+              {result.components?.length > 0 && (
+                <span className="muted"> · {result.components.map((c) => `${c.count} ${c.label}`).join(", ")}</span>
+              )}
+            </span>
+          </Engine>
+        ) : (
+          <Engine name="DINOv2" tone="warn"><span className="warn-text" title={result.dino?.error}>No cargado: análisis sin IA</span></Engine>
+        )}
+        {mode === "analyze" && (
+          <Engine name="SAM 2.1" tone={result.sam?.loaded ? "" : "off"}>
+            <span>
+              {result.fixes_applied?.length
+                ? <><b>{result.fixes_applied.length}</b> correcciones en la vista corregida</>
+                : <span className="muted">Sin correcciones automáticas</span>}
+              {!result.sam?.loaded && <span className="muted"> · sin siluetas</span>}
+            </span>
+          </Engine>
+        )}
+        {mode === "analyze" && (
+          <QwenRow qwen={qwen} qwenStatus={qwenStatus} explained={explained} falsePositives={falsePositives}
+            onExplain={onExplain} onIgnoreMany={onIgnoreMany} />
+        )}
+      </section>
 
       <div className="filters">
         {chips.map(([k, label, n]) => (
           <button key={k} type="button" className={`chip ${k !== "all" ? `dot-${k}` : ""} ${sev === k ? "active" : ""}`}
             onClick={() => setSev(k)}>
-            {label} <span className="count">{n}</span>
+            {label} {k !== "all" && <span className="count">{n}</span>}
           </button>
         ))}
         {Object.keys(byCat).length > 1 && (
           <select value={cat} onChange={(e) => setCat(e.target.value)} aria-label="Filtrar por categoría">
-            <option value="all">Todas las categorías</option>
+            <option value="all">Categoría</option>
             {Object.entries(byCat).map(([c, n]) => <option key={c} value={c}>{CATEGORY[c] ?? c} ({n})</option>)}
           </select>
         )}
@@ -79,49 +167,84 @@ export default function FindingsPanel({
       <ol className="list">
         {shown.map((f) => {
           const open = f.id === selected;
+          const q = explanations[f.id];
+          const [vClass, vLabel, vTip] = (q && VERDICT[q.veredicto]) || [];
           return (
-            <li key={f.id} className={`item sev-${f.severity} ${open ? "open" : ""}`}
+            <li key={f.id} className={`item sev-${f.severity} ${open ? "open" : ""} ${vClass === "fp" ? "is-fp" : ""}`}
               onMouseEnter={() => onHover(f.id)} onMouseLeave={() => onHover(null)}>
               <button type="button" className="item-main" onClick={() => onSelect(open ? null : f.id)} aria-expanded={open}>
                 <span className="num">{f.id}</span>
                 <span className="item-text">
-                  <span className="item-title">{f.title}</span>
+                  <span className="item-top">
+                    <span className="item-title">{f.title}</span>
+                    <span className={`pill sev-${f.severity}`}>{SEVERITY[f.severity]}</span>
+                  </span>
                   <span className="tags">
                     <span className="cat">{CATEGORY[f.category] ?? f.category}</span>
                     {f.source === "dinov2" && (
-                      <span className="ai-tag" title="Hallazgo encontrado por la IA (DINOv2). El % es su parecido visual.">
-                        <Sparkles size={12} /> DINOv2{f.confidence != null && ` · ${Math.round(f.confidence * 100)}%`}
+                      <span className="tag ai" title="Hallazgo encontrado por la IA (DINOv2). El % es su parecido visual.">
+                        <Sparkles size={11} /> DINOv2{f.confidence != null && ` ${Math.round(f.confidence * 100)}%`}
+                      </span>
+                    )}
+                    {q && vLabel && (
+                      <span className={`tag ${vClass}`} title={`${vTip}${q.razon ? `: ${q.razon}` : ""}`}>
+                        <Sparkles size={11} /> {vLabel}
                       </span>
                     )}
                     {result.fixes_applied?.includes(f.id) && (
-                      <span className="fixed-tag" title="Esta corrección se ve aplicada en la pestaña «Vista corregida»">
-                        <Check size={12} /> En vista corregida
+                      <span className="tag fixed icon-only" title="Corregido: se ve aplicado en la pestaña «Vista corregida»"
+                        aria-label="Corregido en la vista corregida">
+                        <Check size={11} />
                       </span>
                     )}
                   </span>
                   <span className="detail">{f.detail}</span>
                 </span>
-                <span className={`pill sev-${f.severity}`}>{SEVERITY[f.severity]}</span>
-                <Chevron size={18} className="chev" />
+                <Chevron size={16} className="chev" />
               </button>
-              {open && <p className="fix">→ {f.suggestion}</p>}
-              <div className="item-actions">
-                {f.box && (
-                  <button type="button" className="btn outline sm" onClick={() => onLocate(f.id)}>
-                    <Target size={16} /> Ver zona
-                  </button>
-                )}
-                {marked[f.id] ? (
-                  <span className="fixed-tag"><Check size={12} /> Marcado como error · la IA aprende</span>
-                ) : (
-                  <button type="button" className="btn ghost sm" onClick={() => onConfirm(f.id)} title="Enseña a la IA que esto SÍ es un error">
-                    <Check size={16} /> Sí es error
-                  </button>
-                )}
-                <button type="button" className="btn ghost sm" onClick={() => onIgnore(f.id)} title="Enseña a la IA que esto NO es un error">
-                  <EyeOff size={16} /> No es error
-                </button>
-              </div>
+
+              {open && (
+                <div className="item-body">
+                  {q ? (
+                    // Todo lo de este bloque lo escribe Qwen
+                    <div className={`explain ${vClass ?? ""}`}>
+                      <p className="explain-head">
+                        <Sparkles size={13} /> Explicado por Qwen
+                        {q.razon && <span className="muted"> · {q.razon}</span>}
+                      </p>
+                      {(q.que_pasa || q.explicacion) && (
+                        <section><h4>Qué pasa</h4><p>{q.que_pasa || q.explicacion}</p></section>
+                      )}
+                      {q.por_que_importa && <section><h4>Por qué importa</h4><p>{q.por_que_importa}</p></section>}
+                      {q.como_arreglarlo && <section><h4>Cómo arreglarlo</h4><p>{q.como_arreglarlo}</p></section>}
+                      <p className="explain-measure"><b>Medición exacta:</b> {f.detail} {f.suggestion}</p>
+                    </div>
+                  ) : (
+                    // Sin Qwen: sólo lo que midió la herramienta
+                    <div className="explain">
+                      <section><h4>Lo que se midió</h4><p>{f.detail}</p></section>
+                      <section><h4>Sugerencia</h4><p>{f.suggestion}</p></section>
+                    </div>
+                  )}
+                  <div className="item-actions">
+                    {f.box && (
+                      <button type="button" className="btn outline sm" onClick={() => onLocate(f.id)}>
+                        <Target size={15} /> Ver zona
+                      </button>
+                    )}
+                    {marked[f.id] ? (
+                      <span className="fixed-tag"><Check size={12} /> Marcado como error · la IA aprende</span>
+                    ) : (
+                      <button type="button" className="btn ghost sm" onClick={() => onConfirm(f.id)} title="Enseña a la IA que esto SÍ es un error">
+                        <Check size={15} /> Sí es error
+                      </button>
+                    )}
+                    <button type="button" className="btn ghost sm" onClick={() => onIgnore(f.id)} title="Enseña a la IA que esto NO es un error">
+                      <EyeOff size={15} /> No es error
+                    </button>
+                  </div>
+                </div>
+              )}
             </li>
           );
         })}
@@ -145,15 +268,16 @@ export default function FindingsPanel({
         </p>
       )}
 
-      {ignoredCount > 0 && (
-        <button type="button" className="link" onClick={onRestore}>
-          {ignoredCount} {ignoredCount === 1 ? "hallazgo ignorado" : "hallazgos ignorados"} · mostrar de nuevo
+      <footer className="panel-foot">
+        {ignoredCount > 0 ? (
+          <button type="button" className="link" onClick={onRestore}>
+            {ignoredCount} {ignoredCount === 1 ? "ignorado" : "ignorados"} · mostrar
+          </button>
+        ) : <span />}
+        <button type="button" className="btn outline sm" onClick={onExport}>
+          <Download size={15} /> Exportar reporte
         </button>
-      )}
-
-      <button type="button" className="btn outline wide" onClick={onExport}>
-        <Download size={18} /> Exportar reporte
-      </button>
+      </footer>
     </aside>
   );
 }

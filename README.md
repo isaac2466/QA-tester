@@ -1,4 +1,4 @@
-# QA Tester visual
+# Lynx · QA visual con IA
 
 Sube una captura de tu página (o tu diseño de Figma y la implementación) y la IA te dice qué está mal: elementos desalineados, componentes con otro tamaño o color, texto difícil de leer y qué zona llama la atención. Además te muestra **cómo se vería corregida**.
 
