@@ -13,6 +13,6 @@ pillow==13.0.0
 numpy==2.5.4
 opencv-python-headless==5.0.0.93
 
-# IA (DINOv2)
+# IA (DINOv2 y SAM 2.1, ambos de Meta, vienen en transformers)
 torch==2.15.0
 transformers==5.22.1

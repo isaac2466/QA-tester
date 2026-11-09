@@ -2,23 +2,24 @@ import io
 import time
 
 import numpy as np
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from PIL import Image, UnidentifiedImageError
 
 from app.core.config import MAX_IMAGE_SIDE
-from app.services import dino, vlm
+from app.services import dino, sam
 from app.services.attention import check_attention
 from app.services.colors import check_colors, check_contrast
 from app.services.compare import compare
+from app.services.components import check_components
 from app.services.findings import score
+from app.services.fixes import apply_fixes
 from app.services.layout import check_alignment, check_centering, check_spacing, detect_elements
-from app.services.render import annotate, heatmap_overlay, to_data_url
+from app.services.render import annotate, components_overlay, heatmap_overlay, to_data_url
 
 router = APIRouter(prefix="/api")
 
 ORDER = {"alta": 0, "media": 1, "baja": 2}
-VERDICT_ORDER = {"confirmado": 0, "sin_verificar": 1, "descartado": 2}
 
 
 async def _read_image(file: UploadFile) -> Image.Image:
@@ -35,19 +36,18 @@ async def _read_image(file: UploadFile) -> Image.Image:
 
 
 def _pack(findings, rgb):
-    findings.sort(key=lambda f: (VERDICT_ORDER.get(f.verdict, 1), ORDER.get(f.severity, 1)))
+    findings.sort(key=lambda f: ORDER[f.severity])
     dicts = [f.to_dict(i + 1) for i, f in enumerate(findings)]
-    # los descartados por la IA no se dibujan en la imagen
-    return dicts, to_data_url(annotate(rgb, [d for d in dicts if d["verdict"] != "descartado"]))
+    return dicts, to_data_url(annotate(rgb, dicts))
 
 
 @router.get("/health")
 def health():
-    return {"status": "ok", "dino": dino.status(), "vlm": vlm.status()}
+    return {"status": "ok", "dino": dino.status(), "sam": sam.status()}
 
 
 @router.post("/analyze")
-async def analyze(file: UploadFile = File(...), ia: bool = Query(True, description="Revisar con el modelo de visión local")):
+async def analyze(file: UploadFile = File(...)):
     img = await _read_image(file)
 
     def run():
@@ -62,51 +62,45 @@ async def analyze(file: UploadFile = File(...), ia: bool = Query(True, descripti
         findings += color_findings
         findings += check_contrast(rgb, elems)
 
-        attention, heat = None, None
+        attention, heat, groups, comps = None, None, [], None
         model = dino.get()
         if model:
             sal = model.saliency(img)
             att_findings, attention = check_attention(rgb, sal, elems)
             findings += att_findings
             heat = to_data_url(heatmap_overlay(rgb, sal))
-
-        # Revisión con IA: verifica cada medición y añade su propia revisión de diseño
-        vlm_info = vlm.status() if ia else {"available": False, "error": "Desactivada en esta petición."}
-        summary = None
-        if vlm_info["available"]:
-            findings.sort(key=lambda f: ORDER[f.severity])
-            cands = [f.to_dict(i + 1) for i, f in enumerate(findings)]
-            try:
-                t_ia = time.perf_counter()
-                confirmed, rejected, reasons, new, summary = vlm.review(
-                    annotate(rgb, cands), cands, img.size)
-                for i, f in enumerate(findings, start=1):
-                    if i in confirmed:
-                        f.verdict = "confirmado"
-                    elif i in rejected:
-                        f.verdict = "descartado"
-                    f.verdict_reason = reasons.get(i, "")
-                for f in new:
-                    f.verdict = "confirmado"
-                findings += new
-                vlm_info["elapsed_ms"] = round((time.perf_counter() - t_ia) * 1000)
-            except Exception as e:  # la IA falló: devolvemos las mediciones sin verificar
-                vlm_info = {"available": False, "model": vlm_info.get("model"),
-                            "error": f"La IA falló: {type(e).__name__}: {e}"}
+            comp_findings, groups = check_components(rgb, elems, model)
+            # si un elemento es más alto/ancho que sus gemelos, su "desalineado" es consecuencia: lo quitamos
+            resized = {tuple(f.box) for f in comp_findings if "alto" in f.title or "ancho" in f.title}
+            findings = [f for f in findings if not (f.category == "alineacion" and f.box and tuple(f.box) in resized)]
+            # DINOv2 decide qué se compara: un botón no tiene por qué alinearse con una tarjeta
+            group_of = {tuple(b): gi for gi, g in enumerate(groups) for b in g["boxes"]}
+            def same_kind(f):
+                if f.category != "alineacion" or not (f.box and f.ref_box):
+                    return True
+                ga, gb = group_of.get(tuple(f.box)), group_of.get(tuple(f.ref_box))
+                return ga is None or gb is None or ga == gb
+            findings = [f for f in findings if same_kind(f)]
+            findings += comp_findings
+            if groups:
+                comps = to_data_url(components_overlay(rgb, groups))
 
         dicts, annotated = _pack(findings, rgb)
+        fixed, applied = apply_fixes(rgb, dicts, sam.get())
         return {
             "filename": file.filename,
             "size": list(img.size),
             "score": score(findings),
-            "summary": summary,
             "findings": dicts,
             "palette": pal,
             "attention": attention,
             "elements_detected": len(elems),
-            "images": {"annotated": annotated, "heatmap": heat},
+            "components": [{"label": g["label"], "count": g["count"]} for g in groups],
+            "images": {"annotated": annotated, "heatmap": heat, "components": comps,
+                       "fixed": to_data_url(fixed) if applied else None},
+            "fixes_applied": applied,
+            "sam": sam.status(),
             "dino": dino.status(),
-            "vlm": vlm_info,
             "elapsed_ms": round((time.perf_counter() - t0) * 1000),
         }
 
@@ -130,6 +124,7 @@ async def compare_images(design: UploadFile = File(...), implementation: UploadF
             "stats": stats,
             "images": {
                 "annotated": annotated,
+                "implementation": to_data_url(impl_rgb),  # limpia (ya reescalada al tamaño del diseño)
                 "design": to_data_url(da),
                 "semantic": to_data_url(heatmap_overlay(impl_rgb, sem, 0.45)) if sem is not None else None,
             },

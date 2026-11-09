@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
 from app.core.config import CORS_ORIGINS
-from app.services import dino
+from app.services import dino, sam
 
 
 @asynccontextmanager
@@ -20,6 +20,10 @@ async def lifespan(app: FastAPI):
     await run_in_threadpool(dino.load)
     st = dino.status()
     print("DINOv2:", "cargado en " + st["device"] if st["loaded"] else "NO disponible -> " + str(st["error"]))
+    # SAM 2.1 (Meta): siluetas exactas para la vista corregida. La primera vez descarga ~150 MB.
+    await run_in_threadpool(sam.load)
+    ss = sam.status()
+    print("SAM 2.1:", "cargado en " + ss["device"] if ss["loaded"] else "NO disponible -> " + str(ss["error"]))
     yield
 
 

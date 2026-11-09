@@ -125,6 +125,7 @@ def check_colors(rgb: np.ndarray):
                                f"pero no lo son. Suele pasar al copiar un color a mano en vez de usar la variable/token.",
                         suggestion=f"Unifica {hex_of(minor)} → {hex_of(major)} (o usa la misma variable CSS).",
                         box=_bbox_of_color(rgb, minor),
+                        fix={"type": "recolor_global", "from": hex_of(minor), "to": hex_of(major)},
                     ))
         findings = findings[:6]
 
@@ -164,6 +165,17 @@ def check_colors(rgb: np.ndarray):
     return findings, [{"hex": hex_of(c), "share": round(float(s), 4)} for c, s in pal]
 
 
+def _fix_contrast(fg, bg, need: float) -> np.ndarray:
+    """Oscurece (o aclara) el texto, sin cambiar su tono, hasta alcanzar el contraste pedido."""
+    fg = np.asarray(fg, dtype=np.float64)
+    goal = np.zeros(3) if luminance(bg) > 0.18 else np.full(3, 255.0)  # fondo claro → texto más oscuro
+    for t in np.linspace(0, 1, 41):
+        c = fg * (1 - t) + goal * t
+        if contrast_ratio(c, bg) >= need:
+            return np.round(c)
+    return goal
+
+
 def check_contrast(rgb: np.ndarray, elems: list[Element]) -> list[Finding]:
     H, W = rgb.shape[:2]
     out = []
@@ -188,15 +200,17 @@ def check_contrast(rgb: np.ndarray, elems: list[Element]) -> list[Finding]:
         large = e.h >= 24  # aprox. ≥18pt
         need = 3.0 if large else 4.5
         if ratio < need:
+            target = _fix_contrast(fg, bg, need + 0.3)
             out.append((ratio, Finding(
                 category="contraste",
                 severity="alta" if ratio < 3 else "media",
                 title=f"Contraste bajo {ratio:.1f}:1 (mínimo WCAG AA {need:g}:1)",
                 detail=f"Texto {hex_of(fg)} sobre fondo {hex_of(bg)} en x={e.x}, y={e.y}. "
                        f"Será difícil de leer, sobre todo en móvil o con sol.",
-                suggestion="Oscurece el texto o aclara el fondo hasta llegar a "
-                           f"{need:g}:1 (puedes verificarlo con cualquier contrast checker).",
+                suggestion=f"Cambia el color del texto a {hex_of(target)} ({contrast_ratio(target, bg):.1f}:1) "
+                           f"o aclara el fondo hasta llegar a {need:g}:1.",
                 box=e.box,
+                fix={"type": "text_color", "box": e.box, "bg": hex_of(bg), "fg": hex_of(fg), "to": hex_of(target)},
             )))
     out.sort(key=lambda t: t[0])
     return [f for _, f in out[:8]]

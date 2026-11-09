@@ -17,6 +17,7 @@ except Exception as e:  # p.ej. DLL de torch que no carga en Windows
 from app.core.config import DINO_INPUT_WIDTH, DINO_MAX_HEIGHT, DINO_MODEL
 
 PATCH = 14
+CROP = 224  # tamaño del recorte de cada elemento (16×16 parches)
 MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
@@ -82,6 +83,42 @@ class DinoService:
         k = max(3, (min(w, h) // 40) | 1)
         sal = cv2.GaussianBlur(sal, (k, k), 0)
         return _normalize01(sal, 0, 100)
+
+    def _crop_tensor(self, rgb: np.ndarray, box: list[int], size: int = CROP, margin: int = 4) -> "torch.Tensor":
+        """Recorte de un elemento, centrado en un lienzo cuadrado (sin deformarlo)."""
+        H, W = rgb.shape[:2]
+        x, y, w, h = box
+        x0, y0 = max(0, x - margin), max(0, y - margin)
+        x1, y1 = min(W, x + w + margin), min(H, y + h + margin)
+        crop = rgb[y0:y1, x0:x1]
+        border = np.concatenate([crop[0], crop[-1], crop[:, 0], crop[:, -1]])
+        canvas = np.empty((size, size, 3), dtype=np.uint8)
+        canvas[:] = np.median(border, axis=0).astype(np.uint8)
+        s = size / max(crop.shape[:2])
+        cw, ch = max(1, round(crop.shape[1] * s)), max(1, round(crop.shape[0] * s))
+        small = cv2.resize(crop, (cw, ch), interpolation=cv2.INTER_AREA if s < 1 else cv2.INTER_CUBIC)
+        ox, oy = (size - cw) // 2, (size - ch) // 2
+        canvas[oy:oy + ch, ox:ox + cw] = small
+        arr = (canvas.astype(np.float32) / 255.0 - MEAN) / STD
+        return torch.from_numpy(arr.transpose(2, 0, 1))
+
+    def embed_boxes(self, rgb: np.ndarray, boxes: list[list[int]], batch: int = 32) -> np.ndarray:
+        """Vector de DINOv2 (L2-normalizado) por cada elemento: CLS + promedio de parches.
+
+        Dos elementos con vectores parecidos son "el mismo tipo de cosa" (p.ej. dos botones
+        del mismo estilo) aunque tengan distinto texto, posición o tamaño.
+        """
+        if not boxes:
+            return np.zeros((0, 2 * self.model.config.hidden_size), dtype=np.float32)
+        start = 1 + self.num_registers
+        out = []
+        for i in range(0, len(boxes), batch):
+            x = torch.stack([self._crop_tensor(rgb, b) for b in boxes[i:i + batch]]).to(self.device)
+            with self._lock, torch.inference_mode():
+                h = self.model(pixel_values=x).last_hidden_state
+            emb = torch.cat([h[:, 0], h[:, start:].mean(1)], dim=-1)
+            out.append(F.normalize(emb, dim=-1).cpu().numpy())
+        return np.concatenate(out)
 
     def patch_similarity(self, a: Image.Image, b: Image.Image) -> tuple[np.ndarray, float]:
         """Similitud coseno por parche entre dos imágenes (mismo grid) y similitud global."""
