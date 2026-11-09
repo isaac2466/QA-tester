@@ -63,12 +63,18 @@ def _fill(rgb: np.ndarray, e: Element) -> np.ndarray:
     return np.array([(v >> 16) & 255, (v >> 8) & 255, v & 255])
 
 
-def _noun(members: list[Element]) -> tuple[str, str]:
+def _noun(members: list[Element], rgb: np.ndarray | None = None) -> tuple[str, str]:
+    """Nombre del componente. Sólo dice "botón" si además tiene fondo de color de acento
+    (morado, azul, verde...): una fila de tabla o un buscador blanco tienen forma de botón pero no lo son."""
+    from app.services.colors import _chroma_hue
     h = float(np.median([e.h for e in members]))
     w = float(np.median([e.w for e in members]))
-    if h <= 48 and 0.7 <= w / h <= 1.4:
+    accent = rgb is not None and float(np.median([_chroma_hue(_fill(rgb, e))[0] for e in members])) > 30
+    if h <= 32 and 0.7 <= w / h <= 1.4:
         return "icono", "iconos"
-    if 20 <= h <= 72 and w / h >= 1.5:
+    if h >= 60 and w >= 120:  # tarjetas de estadísticas (KPI), paneles
+        return "tarjeta", "tarjetas"
+    if 20 <= h < 60 and 1.5 <= w / h <= 8 and accent:
         return "botón", "botones"
     if h >= 80 and w >= 120:
         return "tarjeta", "tarjetas"
@@ -165,7 +171,7 @@ def check_components(rgb: np.ndarray, elems: list[Element], dino) -> tuple[list[
         c /= np.linalg.norm(c) or 1
         conf = {tuple(cands[i].box): float(emb[i] @ c) for i in idx}
         members = sorted((cands[i] for i in idx), key=lambda e: (e.y, e.x))
-        noun = _noun(members)
+        noun = _noun(members, rgb)
         groups.append({"label": noun[1] if len(members) > 1 else noun[0], "count": len(members),
                        "boxes": [e.box for e in members]})
         if len(members) < MIN_GROUP:

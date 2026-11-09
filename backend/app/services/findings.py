@@ -16,6 +16,9 @@ class Finding:
     confidence: float | None = None  # similitud de DINOv2 (0..1) que respalda el hallazgo
     # corrección concreta para la vista corregida, p.ej. {"type": "move", "box": [...], "dx": -3, "dy": 0}
     fix: dict | None = None
+    # veredicto del verificador DINOv2: sin_verificar | confirmado | descartado (foto, degradado, sistema)
+    verdict: str = "sin_verificar"
+    verdict_reason: str = ""
 
     def to_dict(self, idx: int) -> dict:
         d = {"id": idx, **asdict(self)}
@@ -25,4 +28,4 @@ class Finding:
 
 
 def score(findings: list[Finding]) -> int:
-    return max(0, 100 - sum(SEVERITY_WEIGHT[f.severity] for f in findings))
+    return max(0, 100 - sum(SEVERITY_WEIGHT[f.severity] for f in findings if f.verdict != "descartado"))

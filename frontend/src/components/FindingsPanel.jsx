@@ -12,10 +12,11 @@ function Score({ value }) {
 }
 
 export default function FindingsPanel({
-  mode, result, findings, ignoredCount, onIgnore, onRestore, selected, onSelect, onHover, onLocate, onExport,
+  mode, result, findings, ignoredCount, onIgnore, onConfirm, marked = {}, discarded = [], learning, onRestore, selected, onSelect, onHover, onLocate, onExport,
 }) {
   const [sev, setSev] = useState("all");
   const [cat, setCat] = useState("all");
+  const [showDiscarded, setShowDiscarded] = useState(false);
   const bySev = countBy(findings, "severity");
   const byCat = countBy(findings, "category");
   const shown = findings.filter((f) => (sev === "all" || f.severity === sev) && (cat === "all" || f.category === cat));
@@ -110,7 +111,14 @@ export default function FindingsPanel({
                     <Target size={16} /> Ver zona
                   </button>
                 )}
-                <button type="button" className="btn ghost sm" onClick={() => onIgnore(f.id)} title="Quitar de la lista y del puntaje">
+                {marked[f.id] ? (
+                  <span className="fixed-tag"><Check size={12} /> Marcado como error · la IA aprende</span>
+                ) : (
+                  <button type="button" className="btn ghost sm" onClick={() => onConfirm(f.id)} title="Enseña a la IA que esto SÍ es un error">
+                    <Check size={16} /> Sí es error
+                  </button>
+                )}
+                <button type="button" className="btn ghost sm" onClick={() => onIgnore(f.id)} title="Enseña a la IA que esto NO es un error">
                   <EyeOff size={16} /> No es error
                 </button>
               </div>
@@ -119,6 +127,23 @@ export default function FindingsPanel({
         })}
         {!shown.length && <li className="empty-list">{findings.length ? "Nada con este filtro." : "Sin hallazgos 🎉"}</li>}
       </ol>
+
+      {discarded.length > 0 && (
+        <div className="discarded">
+          <button type="button" className="link" onClick={() => setShowDiscarded((v) => !v)}>
+            {discarded.length} {discarded.length === 1 ? "posible error descartado" : "posibles errores descartados"} por la IA · {showDiscarded ? "ocultar" : "ver por qué"}
+          </button>
+          {showDiscarded && (
+            <ul>{discarded.map((f) => <li key={f.id}><b>{f.title}</b> — {f.verdict_reason}</li>)}</ul>
+          )}
+        </div>
+      )}
+      {learning && (
+        <p className="muted small">
+          🧠 La IA ha aprendido de {learning.marcas} {learning.marcas === 1 ? "marca" : "marcas"} tuyas
+          {learning.red_decide ? " · la red neuronal ya decide" : ` · la red neuronal decide a partir de ${learning.minimo_para_decidir ?? 30} marcas`}
+        </p>
+      )}
 
       {ignoredCount > 0 && (
         <button type="button" className="link" onClick={onRestore}>

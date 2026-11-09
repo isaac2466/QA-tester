@@ -125,3 +125,35 @@ class Detector:
         with torch.inference_mode():
             pred = self.head(f[None])
         return decode(pred, *img.size, thr=thr)
+
+
+# ---------- uso en la app ----------
+
+WEIGHTS = __import__("pathlib").Path(__file__).parent / "weights" / "detector.pt"
+_loaded = None
+
+
+def trained_elements(dino, rgb, thr=0.35):
+    """Elementos según el detector ENTRENADO (o [] si todavía no existe app/ai/weights/detector.pt)."""
+    global _loaded
+    if not WEIGHTS.exists() or dino is None:
+        return []
+    if _loaded is None:
+        head = DetectorHead()
+        head.load_state_dict(torch.load(WEIGHTS, map_location="cpu"))
+        _loaded = Detector(head, dino)
+    from app.services.layout import Element
+    H, W = rgb.shape[:2]
+    out = []
+    for d in _loaded(Image.fromarray(rgb), thr=thr):
+        x, y, w, h = d["box"]
+        x, y = max(0, x), max(0, y)
+        w, h = min(w, W - x), min(h, H - y)
+        # sólo bloques: en la 1ª prueba (60 pantallas) los textos salieron con 65% de precisión y meten ruido
+        if d["kind"] == "bloque" and w >= 8 and h >= 6:
+            out.append(Element(x, y, w, h, "bloque"))
+    return out
+
+
+def status():
+    return {"entrenado": WEIGHTS.exists()}

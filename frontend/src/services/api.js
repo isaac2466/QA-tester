@@ -21,6 +21,18 @@ export async function compareImages(design, implementation) {
   return post("/api/compare", formData);
 }
 
+/** Enseña a la IA: guarda tu marca ("no_es_error" | "es_error") de un hallazgo. */
+export async function sendFeedback(analysisId, findingId, label) {
+  const res = await fetch(`${API}/api/feedback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ analysis_id: analysisId, finding_id: findingId, label }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail ?? `Error ${res.status}`);
+  return data;
+}
+
 export async function health() {
   const res = await fetch(`${API}/api/health`);
   if (!res.ok) throw new Error("Backend no disponible");

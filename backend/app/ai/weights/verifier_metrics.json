@@ -1,0 +1,13 @@
+{
+  "ejemplos": 825,
+  "validacion": 165,
+  "exactitud": 0.988,
+  "por_clase": {
+    "texto": 1.0,
+    "componente": 1.0,
+    "icono": 1.0,
+    "imagen": 0.973,
+    "degradado": 0.96,
+    "sistema": 1.0
+  }
+}

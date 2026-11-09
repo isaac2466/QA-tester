@@ -87,7 +87,7 @@ class DinoService:
     def _crop_tensor(self, rgb: np.ndarray, box: list[int], size: int = CROP, margin: int = 4) -> "torch.Tensor":
         """Recorte de un elemento, centrado en un lienzo cuadrado (sin deformarlo)."""
         H, W = rgb.shape[:2]
-        x, y, w, h = box
+        x, y, w, h = (int(round(float(v))) for v in box)
         x0, y0 = max(0, x - margin), max(0, y - margin)
         x1, y1 = min(W, x + w + margin), min(H, y + h + margin)
         crop = rgb[y0:y1, x0:x1]

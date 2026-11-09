@@ -32,11 +32,11 @@ def _elements(rgb: np.ndarray) -> list[Element]:
     return els[:MAX_ELEMENTS]
 
 
-def _name(e: Element) -> tuple[str, str]:
+def _name(e: Element, rgb=None) -> tuple[str, str]:
     """(nombre, artículo) legible del elemento."""
     if e.kind == "texto":
         return ("título" if e.h >= 28 else "texto"), "el"
-    n = _noun([e])[0]
+    n = _noun([e], rgb)[0]
     return n, "la" if n == "tarjeta" else "el"
 
 
@@ -178,7 +178,7 @@ def compare_dino(design: np.ndarray, impl: np.ndarray, dino) -> tuple[list[Findi
         if (dx or dy) and any(_contains(D[p], d) and abs(mx - dx) <= 1 and abs(my - dy) <= 1
                               for p, (mx, my) in moved.items() if p != a):
             dx = dy = 0
-        name, art = _name(d)
+        name, art = _name(d, design)
         Name = name.capitalize()
         changes, fixes, titles, sev = [], [], [], "baja"
         if dx or dy:
@@ -241,7 +241,7 @@ def compare_dino(design: np.ndarray, impl: np.ndarray, dino) -> tuple[list[Findi
             continue
         if _region_diff(design, impl, d.box, (gdx, gdy)) < 6:  # los píxeles confirman que sigue ahí
             continue
-        name, art = _name(d)
+        name, art = _name(d, design)
         miss.append(Finding(
             category="diferencia", severity="alta", source="dinov2",
             title=f"Falta {art} {name} del diseño",
@@ -258,7 +258,7 @@ def compare_dino(design: np.ndarray, impl: np.ndarray, dino) -> tuple[list[Findi
         back = [i.x - gdx, i.y - gdy, i.w, i.h]
         if _region_diff(design, impl, back, (gdx, gdy)) < 6:
             continue
-        name, art = _name(i)
+        name, art = _name(i, impl)
         extra.append(Finding(
             category="diferencia", severity="media", source="dinov2",
             title=f"{name.capitalize()} que no está en el diseño",

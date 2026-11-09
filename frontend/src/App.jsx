@@ -4,7 +4,7 @@ import FindingsPanel from "./components/FindingsPanel.jsx";
 import HistoryDrawer from "./components/HistoryDrawer.jsx";
 import Viewer from "./components/Viewer.jsx";
 import { Camera, Compare, History, Info, Logo, Play } from "./components/icons.jsx";
-import { analyzeImage, compareImages, health } from "./services/api.js";
+import { analyzeImage, compareImages, health, sendFeedback } from "./services/api.js";
 import { exportReport } from "./utils/report.js";
 import { load, save } from "./utils/storage.js";
 
@@ -136,14 +136,24 @@ export default function App() {
   };
 
   const ignoredIds = ignored[mode] ?? [];
+  // lo que la IA descartó (foto, degradado, parecido a algo que marcaste) no se dibuja ni cuenta
   const visible = useMemo(
-    () => (result ? result.findings.filter((f) => !ignoredIds.includes(f.id)) : []),
+    () => (result ? result.findings.filter((f) => !ignoredIds.includes(f.id) && f.verdict !== "descartado") : []),
     [result, ignoredIds],
   );
+  const discarded = result ? result.findings.filter((f) => f.verdict === "descartado") : [];
+  const [learning, setLearning] = useState(null);
+  const [marked, setMarked] = useState({}); // id → "es_error"
+  const teach = (id, label) => {
+    if (!result?.analysis_id) return;
+    sendFeedback(result.analysis_id, id, label).then(setLearning).catch((e) => setError(`No se guardó tu marca: ${e.message}`));
+  };
   const ignore = (id) => {
     setIgnored((i) => ({ ...i, [mode]: [...(i[mode] ?? []), id] }));
     if (selected === id) setSelected(null);
+    teach(id, "no_es_error");
   };
+  const confirmError = (id) => { setMarked((m) => ({ ...m, [id]: "es_error" })); teach(id, "es_error"); };
   const locate = (id) => { setSelected(id); setFocusTick((t) => t + 1); };
 
   return (
@@ -203,7 +213,8 @@ export default function App() {
                 sourceUrl={source?.url} findings={visible} selected={selected} hovered={hovered}
                 onSelect={setSelected} focusTick={focusTick} />
               <FindingsPanel key={`${mode}-${result.elapsed_ms}`} mode={mode} result={result} findings={visible}
-                ignoredCount={ignoredIds.length} onIgnore={ignore}
+                ignoredCount={ignoredIds.length} onIgnore={ignore} onConfirm={confirmError} marked={marked}
+                discarded={discarded} learning={learning ?? result.learning}
                 onRestore={() => setIgnored((i) => ({ ...i, [mode]: [] }))}
                 selected={selected} onSelect={setSelected} onHover={setHovered} onLocate={locate}
                 onExport={() => exportReport({ mode, result, findings: visible, names })} />
