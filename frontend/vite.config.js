@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    // timeout amplio: la IA local en CPU puede tardar varios minutos por imagen
-    proxy: { "/api": { target: "http://127.0.0.1:8000", timeout: 600000, proxyTimeout: 600000 } },
+    // Otro puerto para el backend:  BACKEND_URL=http://127.0.0.1:8001 npm run dev
+    proxy: { "/api": process.env.BACKEND_URL ?? "http://127.0.0.1:8000" },
   },
 });

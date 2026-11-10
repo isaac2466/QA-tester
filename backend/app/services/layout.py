@@ -76,6 +76,28 @@ def _merge_text_lines(texts: list[Element]) -> list[Element]:
     return texts
 
 
+def _color_regions(rgb: np.ndarray) -> list[Element]:
+    H, W = rgb.shape[:2]
+    q = (rgb // 8).astype(np.int32)  # agrupa tonos casi iguales (ruido de compresión)
+    packed = (q[..., 0] << 10) | (q[..., 1] << 5) | q[..., 2]
+    vals, counts = np.unique(packed, return_counts=True)
+    page_bg = vals[np.argmax(counts)]
+    out = []
+    for v in vals[counts >= 300]:
+        if v == page_bg:
+            continue
+        mask = (packed == v).astype(np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))  # tapa texto e íconos de adentro
+        n, _, st, _ = cv2.connectedComponentsWithStats(mask, 8)
+        for i in range(1, n):
+            x, y, w, h, area = st[i]
+            if w < 16 or h < 12 or w * h > 0.5 * W * H:
+                continue
+            if area / float(w * h) > 0.6:  # región "llena": un bloque, no una línea o un degradado
+                out.append(Element(int(x), int(y), int(w), int(h), "bloque"))
+    return out
+
+
 def detect_elements(rgb: np.ndarray, max_elements=160) -> list[Element]:
     H, W = rgb.shape[:2]
     # gradiente por canal: detecta también fondos de tarjeta muy sutiles (#F1F5F9 sobre blanco)
@@ -90,9 +112,14 @@ def detect_elements(rgb: np.ndarray, max_elements=160) -> list[Element]:
         x, y, w, h = cv2.boundingRect(c)
         if w < 16 or h < 12 or w * h > 0.9 * W * H:
             continue
-        if cv2.contourArea(c) / float(w * h) > 0.88:
+        fill = cv2.contourArea(c) / float(w * h)
+        round_shape = 0.8 <= w / h <= 1.25 and fill > 0.72  # avatares e íconos circulares (π/4 ≈ 0.785)
+        if fill > 0.88 or round_shape:
             # el gradiente marca 1px por fuera del borde real → lo compensamos
             blocks.append(Element(x + 1, y + 1, w - 2, h - 2, "bloque"))
+    # 1b) Bloques por COLOR: zonas grandes de un color uniforme distinto al fondo (tarjetas de color,
+    #     botones, paneles en modo oscuro). El método de bordes falla cuando el contorno sale "roto".
+    blocks += _color_regions(rgb)
     blocks = _dedupe(blocks)
 
     # 2) Texto: se unen letras en líneas con una dilatación horizontal.
@@ -146,18 +173,14 @@ def check_alignment(elems: list[Element], tol=4) -> list[Finding]:
                     continue
             elif _overlap(a.x, a.right, b.x, b.right) > 0:
                 continue  # alineación de fila: uno al lado del otro
-            # sólo se comparan elementos del mismo tipo (un icono vs un texto no es un error)
+            # (de la rama de Chris) sólo elementos del mismo tipo: un icono vs un texto no es un error
             if a.kind != b.kind:
                 continue
-            # texto: sólo el borde izquierdo de líneas apiladas. El borde superior depende
-            # de si la palabra tiene mayúsculas/ascendentes, así que no sirve para medir.
+            # texto: sólo el borde izquierdo de líneas apiladas (el borde superior depende de mayúsculas/ascendentes)
             if a.kind == "texto" and attr != "left":
                 continue
             # sólo vecinos cercanos: dos cosas lejanas a 2px es casualidad, no un error
-            if horizontal:
-                gap = max(a.y, b.y) - min(a.bottom, b.bottom)
-            else:
-                gap = max(a.x, b.x) - min(a.right, b.right)
+            gap = (max(a.y, b.y) - min(a.bottom, b.bottom)) if horizontal else (max(a.x, b.x) - min(a.right, b.right))
             if gap > 120:
                 continue
             va, vb = getattr(a, attr), getattr(b, attr)
@@ -205,6 +228,8 @@ def check_alignment(elems: list[Element], tol=4) -> list[Finding]:
             suggestion=f"{fix} para que su {name} coincida.",
             box=off.box,
             ref_box=ref.box,
+            fix={"type": "move", "box": off.box,
+                 "dx": -round(delta) if horizontal else 0, "dy": 0 if horizontal else -round(delta)},
         ))
     return out
 
@@ -254,6 +279,10 @@ def check_spacing(elems: list[Element]) -> list[Finding]:
                         suggestion=f"Ajusta la separación a {other}px "
                                    f"({'+' if other > g else '-'}{abs(other - g)}px) para mantener el ritmo.",
                         box=[x0, y0, x1 - x0, y1 - y0],
+                        # se mueve el segundo elemento (b) para que la separación sea `other`
+                        fix={"type": "move", "box": b.box,
+                             "dx": (other - g) if axis == "horizontal" else 0,
+                             "dy": (other - g) if axis == "vertical" else 0},
                     ))
                     break
     return out[:8]
@@ -277,5 +306,6 @@ def check_centering(elems: list[Element], width: int) -> list[Finding]:
                 suggestion=f"Si debe ir centrado, muévelo {abs(d):g}px a la {'izquierda' if d > 0 else 'derecha'} "
                            f"(revisa margin/padding asimétricos o un scrollbar).",
                 box=e.box,
+                fix={"type": "move", "box": e.box, "dx": -round(d), "dy": 0},
             ))
     return out[:5]
