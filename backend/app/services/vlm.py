@@ -130,20 +130,23 @@ def _crop(rgb: np.ndarray, f: dict) -> np.ndarray:
     tapar lo que Qwen tiene que leer.
     """
     H, W = rgb.shape[:2]
-    boxes = [b for b in (f.get("box"), f.get("ref_box")) if b]
+    # cv2 sólo acepta enteros: una caja con decimales (p. ej. 577.0 tras pasar por JSON) lo rompe
+    box = [int(round(v)) for v in f["box"]]
+    ref = [int(round(v)) for v in f["ref_box"]] if f.get("ref_box") else None
+    boxes = [b for b in (box, ref) if b]
     x1 = min(b[0] for b in boxes)
     y1 = min(b[1] for b in boxes)
     x2 = max(b[0] + b[2] for b in boxes)
     y2 = max(b[1] + b[3] for b in boxes)
     m = max(32, round(0.4 * max(x2 - x1, y2 - y1)))
     x1, y1, x2, y2 = max(0, x1 - m), max(0, y1 - m), min(W, x2 + m), min(H, y2 + m)
-    crop = np.ascontiguousarray(rgb[y1:y2, x1:x2])
+    crop = rgb[y1:y2, x1:x2].copy()  # copia siempre: si el recorte es todo el ancho, sería una vista de solo lectura
     t = max(2, round(max(x2 - x1, y2 - y1) / 150))  # grosor que se siga viendo tras escalar
-    if f.get("ref_box"):
-        rx, ry, rw, rh = f["ref_box"]
+    if ref:
+        rx, ry, rw, rh = ref
         cv2.rectangle(crop, (rx - x1 - 3, ry - y1 - 3), (rx - x1 + rw + 2, ry - y1 + rh + 2),
                       (150, 150, 150), max(1, t // 2))
-    bx, by, bw, bh = f["box"]
+    bx, by, bw, bh = box
     color = FINDING_COLORS.get(f.get("severity"), FINDING_COLORS["baja"])
     cv2.rectangle(crop, (bx - x1 - t - 2, by - y1 - t - 2), (bx - x1 + bw + t + 1, by - y1 + bh + t + 1), color, t)
     return crop
@@ -216,6 +219,18 @@ def _salvage(content: str) -> list[dict]:
             items.append(obj)
 
 
+def _tidy(text: str | None, limit: int) -> str:
+    """Si el texto llegó al tope de caracteres (quedó cortado), lo cierra en la última frase o palabra completa."""
+    text = (text or "").strip()
+    if len(text) < limit - 5:
+        return text
+    end = max(text.rfind(". "), text.rfind("; "))
+    if end > limit * 0.5:
+        return text[:end] + "."
+    cut = text.rsplit(" ", 1)[0].rstrip(",;:—- ")
+    return cut + "…"
+
+
 class Cancelled(Exception):
     """El navegador ya no espera la respuesta (se cerró o se pidió un análisis nuevo)."""
 
@@ -273,15 +288,21 @@ def explain(rgb: np.ndarray, findings: list[dict], cancel: threading.Event | Non
             why = "se le acabó el límite de texto" if done_reason == "length" else "la respuesta llegó incompleta"
             raise RuntimeError(f"Qwen no terminó su respuesta ({why}).")
 
+    if not isinstance(data, dict) or not isinstance(data.get("hallazgos"), list):
+        raise RuntimeError("Qwen respondió con un formato inesperado.")
     by_id = {f["id"]: f for f in findings}
     out = {}
-    for h in data.get("hallazgos", []):
+    for h in data["hallazgos"]:
+        if not isinstance(h, dict):
+            continue
         f = by_id.get(h.get("id"))
         if not f or h.get("veredicto") not in VERDICTS:
             continue  # si el modelo inventa un id, lo ignoramos
         kind = h.get("contenido")
-        verdict, reason = h["veredicto"], (h.get("razon") or "").strip()
-        what, why, how = ((h.get(k) or "").strip() for k in ("que_pasa", "por_que_importa", "como_arreglarlo"))
+        lim = {k: v.get("maxLength", 1000) for k, v in SCHEMA["properties"]["hallazgos"]["items"]["properties"].items()
+               if isinstance(v, dict)}
+        verdict, reason = h["veredicto"], _tidy(h.get("razon"), lim["razon"])
+        what, why, how = (_tidy(h.get(k), lim[k]) for k in ("que_pasa", "por_que_importa", "como_arreglarlo"))
         # reglas fijas sobre lo que Qwen dice que VE (más fiable que su veredicto directo)
         forced = None
         if f.get("box") and kind in NOT_PAGE_UI:

@@ -126,7 +126,9 @@ export default function FindingsPanel({
               {result.stats?.matched != null && <> · emparejó <b>{result.stats.matched}/{result.stats.design_elements}</b></>}
               {result.stats?.semantic_similarity != null && <> · parecido <b>{(result.stats.semantic_similarity * 100).toFixed(0)}%</b></>}
               {result.components?.length > 0 && (
-                <span className="muted"> · {result.components.map((c) => `${c.count} ${c.label}`).join(", ")}</span>
+                <span className="muted" title={result.components.map((c) => `${c.count} ${c.label}`).join(", ")}>
+                  {" "}· {result.components.length} {result.components.length === 1 ? "grupo" : "grupos"} de componentes
+                </span>
               )}
             </span>
           </Engine>
@@ -208,22 +210,24 @@ export default function FindingsPanel({
                   {q ? (
                     // Todo lo de este bloque lo escribe Qwen
                     <div className={`explain ${vClass ?? ""}`}>
-                      <p className="explain-head">
-                        <Sparkles size={13} /> Explicado por Qwen
-                        {q.razon && <span className="muted"> · {q.razon}</span>}
-                      </p>
-                      {(q.que_pasa || q.explicacion) && (
-                        <section><h4>Qué pasa</h4><p>{q.que_pasa || q.explicacion}</p></section>
+                      <div className="verdict">
+                        <span className="verdict-label"><Sparkles size={13} /> {vLabel ?? "Explicado por Qwen"}</span>
+                        {q.razon && <p className="verdict-reason">{q.razon}</p>}
+                      </div>
+                      <dl className="explain-steps">
+                        {(q.que_pasa || q.explicacion) && <><dt>Qué pasa</dt><dd>{q.que_pasa || q.explicacion}</dd></>}
+                        {q.por_que_importa && <><dt>Por qué importa</dt><dd>{q.por_que_importa}</dd></>}
+                      </dl>
+                      {q.como_arreglarlo && (
+                        <div className="explain-fix"><span>Cómo arreglarlo</span><p>{q.como_arreglarlo}</p></div>
                       )}
-                      {q.por_que_importa && <section><h4>Por qué importa</h4><p>{q.por_que_importa}</p></section>}
-                      {q.como_arreglarlo && <section><h4>Cómo arreglarlo</h4><p>{q.como_arreglarlo}</p></section>}
-                      <p className="explain-measure"><b>Medición exacta:</b> {f.detail} {f.suggestion}</p>
+                      <p className="explain-measure"><span>Medición</span>{f.detail}</p>
                     </div>
                   ) : (
                     // Sin Qwen: sólo lo que midió la herramienta
                     <div className="explain">
-                      <section><h4>Lo que se midió</h4><p>{f.detail}</p></section>
-                      <section><h4>Sugerencia</h4><p>{f.suggestion}</p></section>
+                      <dl className="explain-steps"><dt>Lo que se midió</dt><dd>{f.detail}</dd></dl>
+                      <div className="explain-fix"><span>Sugerencia</span><p>{f.suggestion}</p></div>
                     </div>
                   )}
                   <div className="item-actions">
@@ -251,21 +255,23 @@ export default function FindingsPanel({
         {!shown.length && <li className="empty-list">{findings.length ? "Nada con este filtro." : "Sin hallazgos 🎉"}</li>}
       </ol>
 
-      {discarded.length > 0 && (
-        <div className="discarded">
-          <button type="button" className="link" onClick={() => setShowDiscarded((v) => !v)}>
-            {discarded.length} {discarded.length === 1 ? "posible error descartado" : "posibles errores descartados"} por la IA · {showDiscarded ? "ocultar" : "ver por qué"}
-          </button>
+      {(discarded.length > 0 || learning) && (
+        <div className="panel-notes">
+          {discarded.length > 0 && (
+            <button type="button" className="link" onClick={() => setShowDiscarded((v) => !v)} aria-expanded={showDiscarded}>
+              {discarded.length} descartados por la IA · {showDiscarded ? "ocultar" : "ver"}
+            </button>
+          )}
+          {learning && (
+            <span className="muted" title={learning.red_decide ? "La red neuronal ya decide con tus marcas"
+              : `La red neuronal decide a partir de ${learning.minimo_para_decidir ?? 30} marcas`}>
+              🧠 {learning.marcas}/{learning.red_decide ? learning.marcas : learning.minimo_para_decidir ?? 30} marcas
+            </span>
+          )}
           {showDiscarded && (
             <ul>{discarded.map((f) => <li key={f.id}><b>{f.title}</b> — {f.verdict_reason}</li>)}</ul>
           )}
         </div>
-      )}
-      {learning && (
-        <p className="muted small">
-          🧠 La IA ha aprendido de {learning.marcas} {learning.marcas === 1 ? "marca" : "marcas"} tuyas
-          {learning.red_decide ? " · la red neuronal ya decide" : ` · la red neuronal decide a partir de ${learning.minimo_para_decidir ?? 30} marcas`}
-        </p>
       )}
 
       <footer className="panel-foot">

@@ -2,6 +2,7 @@ import asyncio
 import io
 import json
 import threading
+import traceback
 import time
 
 import numpy as np
@@ -249,7 +250,7 @@ async def explain(request: Request, file: UploadFile = File(...), findings: str 
     def run():
         t0 = time.perf_counter()
         try:
-            out = vlm.explain(np.asarray(img), items[:3], cancel)
+            out = vlm.explain(np.array(img), items[:3], cancel)  # np.array copia: np.asarray de PIL es de solo lectura
         except vlm.Cancelled:
             return None
         except RuntimeError as e:
@@ -258,6 +259,9 @@ async def explain(request: Request, file: UploadFile = File(...), findings: str 
         except OSError as e:  # timeout o Ollama se cerró a medio camino
             print("Qwen sin respuesta:", e)
             raise HTTPException(504, f"Qwen no respondió a tiempo ({e}).")
+        except Exception as e:  # cualquier otro fallo: que se vea el motivo en el panel, no un "Error 500" mudo
+            traceback.print_exc()
+            raise HTTPException(500, f"Fallo al explicar ({type(e).__name__}: {e}).")
         return {"explanations": out, "model": st["model"],
                 "elapsed_ms": round((time.perf_counter() - t0) * 1000)}
 

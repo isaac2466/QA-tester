@@ -130,7 +130,8 @@ export default function App() {
     const myRun = qwenRun.current;
     const ctrl = new AbortController();
     qwenAbort.current = ctrl;
-    const pending = data.findings.filter((f) => !data.qwen?.[f.id]);
+    // sólo los que se muestran: los descartados por la IA no necesitan explicación
+    const pending = data.findings.filter((f) => f.verdict !== "descartado" && !data.qwen?.[f.id]);
     const acc = { ...(data.qwen ?? {}) };
     let failed = 0;
     let lastError = null;
@@ -188,7 +189,7 @@ export default function App() {
         return next;
       });
       requestAnimationFrame(() => mainRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
-      if (m === "analyze" && qwenOn && data.findings.length) runQwen(file, data, entry.id);
+      if (m === "analyze" && qwenOn && data.findings.some((f) => f.verdict !== "descartado")) runQwen(file, data, entry.id);
     } catch (e) {
       setError(e.message === "Failed to fetch" || /Error 50\d/.test(e.message)
         ? "No se pudo conectar con el backend. ¿Está corriendo uvicorn en el puerto 8000?" : e.message);
