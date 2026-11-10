@@ -49,12 +49,13 @@ SCHEMA = {
                 "properties": {
                     "id": {"type": "integer"},
                     "contenido": {"type": "string", "enum": ELEMENT_TYPES},
-                    "texto_visible": {"type": "string"},
+                    # maxLength: si Qwen entra en bucle repitiendo texto, el campo se cierra solo
+                    "texto_visible": {"type": "string", "maxLength": 80},
                     "veredicto": {"type": "string", "enum": VERDICTS},
-                    "razon": {"type": "string"},
-                    "que_pasa": {"type": "string"},
-                    "por_que_importa": {"type": "string"},
-                    "como_arreglarlo": {"type": "string"},
+                    "razon": {"type": "string", "maxLength": 160},
+                    "que_pasa": {"type": "string", "maxLength": 400},
+                    "por_que_importa": {"type": "string", "maxLength": 320},
+                    "como_arreglarlo": {"type": "string", "maxLength": 320},
                 },
                 "required": ["id", "contenido", "texto_visible", "veredicto", "razon",
                              "que_pasa", "por_que_importa", "como_arreglarlo"],
@@ -196,6 +197,25 @@ def _describe(f: dict) -> str:
     return f"#{f['id']} [{f.get('category', '')}] {f.get('title', '')}. {f.get('detail', '')}"
 
 
+def _salvage(content: str) -> list[dict]:
+    """Si la respuesta se cortó, recupera los objetos de "hallazgos" que sí quedaron completos."""
+    start = content.find("[")
+    if start < 0:
+        return []
+    dec, items, i = json.JSONDecoder(), [], start + 1
+    while True:
+        while i < len(content) and content[i] in " \t\r\n,":
+            i += 1
+        if i >= len(content) or content[i] != "{":
+            return items
+        try:
+            obj, i = dec.raw_decode(content, i)
+        except json.JSONDecodeError:
+            return items  # el último quedó a medias: lo descartamos
+        if isinstance(obj, dict):
+            items.append(obj)
+
+
 class Cancelled(Exception):
     """El navegador ya no espera la respuesta (se cerró o se pidió un análisis nuevo)."""
 
@@ -238,7 +258,8 @@ def explain(rgb: np.ndarray, findings: list[dict], cancel: threading.Event | Non
         "think": False,
         "format": SCHEMA,
         "keep_alive": "30m",  # deja el modelo en memoria: el siguiente lote no espera a que cargue
-        "options": {"temperature": 0, "num_ctx": 8192, "num_predict": 380 * len(findings) + 150},
+        "options": {"temperature": 0, "repeat_penalty": 1.15, "num_ctx": 8192,
+                    "num_predict": 380 * len(findings) + 150},
         "messages": [{"role": "user", "content": prompt, "images": [_encode(image, VLM_MAX_SIDE)]}],
     }
     content, done_reason = _chat(payload, cancel)
@@ -247,8 +268,10 @@ def explain(rgb: np.ndarray, findings: list[dict], cancel: threading.Event | Non
     try:
         data = json.loads(content)
     except json.JSONDecodeError:
-        why = "se le acabó el límite de texto" if done_reason == "length" else "la respuesta llegó incompleta"
-        raise RuntimeError(f"Qwen no terminó su respuesta ({why}).")
+        data = {"hallazgos": _salvage(content)}  # nos quedamos con los hallazgos que sí completó
+        if not data["hallazgos"]:
+            why = "se le acabó el límite de texto" if done_reason == "length" else "la respuesta llegó incompleta"
+            raise RuntimeError(f"Qwen no terminó su respuesta ({why}).")
 
     by_id = {f["id"]: f for f in findings}
     out = {}

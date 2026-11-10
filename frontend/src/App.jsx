@@ -142,6 +142,9 @@ export default function App() {
           const res = await explainFindings(img, batch, ctrl.signal);
           if (qwenRun.current !== myRun) return; // hubo un análisis nuevo: descartamos esta respuesta
           Object.assign(acc, res.explanations);
+          // si la respuesta se cortó, Qwen pudo devolver sólo algunos: los demás cuentan como pendientes
+          const missing = batch.filter((f) => !res.explanations[f.id]).length;
+          if (missing) { failed += missing; lastError = "Qwen no alcanzó a terminar su respuesta"; }
           setResults((r) => (r.analyze?.elapsed_ms === data.elapsed_ms
             ? { ...r, analyze: { ...r.analyze, qwen: { ...acc } } } : r));
           break;
