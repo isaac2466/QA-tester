@@ -217,6 +217,11 @@ svg { flex: none; }
 .box.ref { --c: #6b7280; pointer-events: none; border-style: dotted; }
 .box.ref span { position: absolute; bottom: -20px; left: 0; font-size: 11px; color: #374151; background: #fff; padding: 0 4px; border-radius: 3px; white-space: nowrap; }
 
+.viewer { position: sticky; top: 12px; }
+.canvas { position: relative; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); }
+.canvas img { display: block; width: 100%; height: auto; }
+.highlight { position: absolute; opacity: 0; outline: 3px solid var(--accent); box-shadow: 0 0 0 9999px rgb(0 0 0 / .35), 0 0 18px rgb(115 230 163 / 55%); pointer-events: none; will-change: left, top, width, height, opacity; transition: left .32s cubic-bezier(.22, 1, .36, 1), top .32s cubic-bezier(.22, 1, .36, 1), width .32s cubic-bezier(.22, 1, .36, 1), height .32s cubic-bezier(.22, 1, .36, 1), opacity .16s ease; }
+.highlight.visible { opacity: 1; }
 .overlay .handle {
   position: absolute; top: 0; bottom: 0; width: 24px; margin-left: -12px; z-index: 4; cursor: ew-resize; touch-action: none;
   display: grid; place-items: center;
