@@ -4,13 +4,82 @@ import FindingsPanel from "./components/FindingsPanel.jsx";
 import HistoryDrawer from "./components/HistoryDrawer.jsx";
 import Viewer from "./components/Viewer.jsx";
 import { Camera, Compare, History, Info, Logo, Play } from "./components/icons.jsx";
-import { analyzeImage, compareImages, explainFindings, health, sendFeedback } from "./services/api.js";
+import {
+  analyzeImage, clearHistory, compareImages, explainFindings, getHistory, health, login, logout, me,
+  register, saveHistory, sendFeedback,
+} from "./services/api.js";
 import { exportReport } from "./utils/report.js";
 import { load, save } from "./utils/storage.js";
 
 const HISTORY_MAX = 12;
 const QWEN_BATCH = 3; // hallazgos por llamada a Qwen: lotes chicos = ~2 min cada uno y si uno falla se pierde poco
 const QWEN_RETRIES = 1; // reintentos por lote antes de saltarlo
+
+function AuthScreen({ onAuthenticated }) {
+  const [mode, setMode] = useState("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setLoading(true);
+    setError(null);
+    try {
+      const response = mode === "login" ? await login(email, password) : await register(email, password);
+      localStorage.setItem("qa-token", response.token);
+      onAuthenticated(response.user);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="auth-page">
+      <section className="auth-card">
+        <div className="auth-avatar" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="8" r="3.5" />
+            <path d="M5 20c.6-3.5 3.1-5.5 7-5.5s6.4 2 7 5.5" />
+          </svg>
+        </div>
+        <div className="auth-content">
+          <div className="auth-heading">
+            <h1>{mode === "login" ? "Iniciar sesión" : "Crear cuenta"}</h1>
+            <p className="muted">Accede a tus análisis e historial</p>
+          </div>
+          <form className="auth-form" onSubmit={submit}>
+            <label className="auth-field">
+              <span className="auth-field-icon" aria-hidden="true">@</span>
+              <span className="sr-only">Correo electrónico</span>
+              <input type="email" placeholder="Correo electrónico" value={email}
+                onChange={(e) => setEmail(e.target.value)} required />
+            </label>
+            <label className="auth-field">
+              <span className="auth-field-icon" aria-hidden="true">●</span>
+              <span className="sr-only">Contraseña</span>
+              <input type="password" placeholder="Contraseña" value={password}
+                onChange={(e) => setPassword(e.target.value)} minLength={8} required />
+            </label>
+            {error && <p className="error" role="alert">{error}</p>}
+            <button type="submit" className="btn primary auth-submit" disabled={loading}>
+              {loading ? "Guardando…" : mode === "login" ? "Entrar" : "Registrarme"}
+            </button>
+          </form>
+          <button type="button" className="auth-switch" onClick={() => {
+            setMode(mode === "login" ? "register" : "login");
+            setError(null);
+          }}>
+            {mode === "login" ? "Crear una cuenta" : "Ya tengo una cuenta"}
+          </button>
+        </div>
+      </section>
+    </main>
+  );
+}
 
 function StatusPill({ status }) {
   const [tone, text] = !status ? ["partial", "Conectando…"]
@@ -22,6 +91,8 @@ function StatusPill({ status }) {
 }
 
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
   const [mode, setMode] = useState("analyze");
   const [file, setFileRaw] = useState(null);
   const [design, setDesignRaw] = useState(null);
@@ -74,7 +145,7 @@ export default function App() {
 
   // Restaurar sesión e historial al recargar (F5)
   useEffect(() => {
-    Promise.all([load("session"), load("history")]).then(([s, h]) => {
+    load("session").then((s) => {
       if (s) {
         setMode(s.mode ?? "analyze");
         setFileRaw(s.file ?? null);
@@ -83,9 +154,26 @@ export default function App() {
         setResults(s.results ?? {});
         setIgnored(s.ignored ?? {});
       }
-      setHistory(h ?? []);
       setHydrated(true);
     });
+  }, []);
+
+  useEffect(() => {
+    const token = localStorage.getItem("qa-token");
+    if (!token) {
+      load("history").then((h) => setHistory(h ?? [])).finally(() => setAuthReady(true));
+      return;
+    }
+    Promise.all([me(), getHistory()])
+      .then(([session, remoteHistory]) => {
+        setUser(session.user);
+        setHistory(remoteHistory);
+      })
+      .catch(() => {
+        localStorage.removeItem("qa-token");
+        setUser(null);
+      })
+      .finally(() => setAuthReady(true));
   }, []);
 
   useEffect(() => {
@@ -179,10 +267,16 @@ export default function App() {
       if (m === "analyze") stopQwen();
       setResults((r) => ({ ...r, [m]: data }));
       setIgnored((i) => ({ ...i, [m]: [] }));
-      const entry = {
+      let entry = {
         id: Date.now(), date: new Date().toISOString(), mode: m, names,
         files: m === "analyze" ? { file } : { design, impl }, result: data,
       };
+      try {
+        const saved = await saveHistory({ mode: m, names, result: data });
+        entry = { ...entry, id: saved.id, date: saved.date };
+      } catch (e) {
+        setError(`El análisis terminó, pero no se guardó en MySQL: ${e.message}`);
+      }
       setHistory((h) => {
         const next = [entry, ...h].slice(0, HISTORY_MAX);
         save("history", next);
@@ -209,6 +303,16 @@ export default function App() {
     setShowHistory(false);
   };
 
+  const clearStoredHistory = async () => {
+    try {
+      await clearHistory();
+      setHistory([]);
+      save("history", null);
+    } catch (e) {
+      setError(`No se pudo borrar el historial: ${e.message}`);
+    }
+  };
+
   const ignoredIds = ignored[mode] ?? [];
   // lo que la IA descartó (foto, degradado, parecido a algo que marcaste) no se dibuja ni cuenta
   const visible = useMemo(
@@ -231,12 +335,22 @@ export default function App() {
   const ignoreMany = (ids) => setIgnored((i) => ({ ...i, [mode]: [...new Set([...(i[mode] ?? []), ...ids])] }));
   const locate = (id) => { setSelected(id); setFocusTick((t) => t + 1); };
 
+  if (!authReady) return <main className="page"><p className="muted">Cargando sesión…</p></main>;
+  if (!user) return <AuthScreen onAuthenticated={(nextUser) => {
+    setUser(nextUser);
+    getHistory().then(setHistory).catch((e) => setError(e.message));
+  }} />;
+
   return (
     <div className="app">
       <header className="topbar">
         <div className="brand"><Logo /> Lynx</div>
         <div className="topbar-right">
           <StatusPill status={status} />
+          <span className="muted">{user.email}</span>
+          <button type="button" className="btn ghost" onClick={async () => {
+            try { await logout(); } finally { localStorage.removeItem("qa-token"); setUser(null); }
+          }}>Salir</button>
           <button type="button" className="btn outline" onClick={() => setShowHistory(true)}>
             <History /> Historial
           </button>
@@ -351,7 +465,7 @@ export default function App() {
       </main>
 
       <HistoryDrawer open={showHistory} items={history} onClose={() => setShowHistory(false)} onRestore={restore}
-        onClear={() => { setHistory([]); save("history", null); }} />
+        onClear={clearStoredHistory} />
     </div>
   );
 }

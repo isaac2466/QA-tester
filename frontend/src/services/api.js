@@ -1,12 +1,36 @@
 // En desarrollo, Vite reenvía /api → http://127.0.0.1:8000 (ver vite.config.js).
 const API = import.meta.env.VITE_API_URL ?? "";
 
+function authHeaders() {
+  const token = localStorage.getItem("qa-token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function post(path, formData, signal) {
-  const res = await fetch(`${API}${path}`, { method: "POST", body: formData, signal });
+  const res = await fetch(`${API}${path}`, { method: "POST", body: formData, signal, headers: authHeaders() });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail ?? `Error ${res.status} del servidor`);
   return data;
 }
+
+async function jsonRequest(path, method, body) {
+  const res = await fetch(`${API}${path}`, {
+    method,
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: body == null ? undefined : JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail ?? `Error ${res.status}`);
+  return data;
+}
+
+export const register = (email, password) => jsonRequest("/api/auth/register", "POST", { email, password });
+export const login = (email, password) => jsonRequest("/api/auth/login", "POST", { email, password });
+export const me = () => jsonRequest("/api/auth/me", "GET");
+export const logout = () => jsonRequest("/api/auth/logout", "POST");
+export const getHistory = () => jsonRequest("/api/history", "GET");
+export const saveHistory = (entry) => jsonRequest("/api/history", "POST", entry);
+export const clearHistory = () => jsonRequest("/api/history", "DELETE");
 
 export async function analyzeImage(file, { ia = true } = {}) {
   const formData = new FormData();
@@ -25,7 +49,7 @@ export async function compareImages(design, implementation) {
 export async function sendFeedback(analysisId, findingId, label) {
   const res = await fetch(`${API}/api/feedback`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ analysis_id: analysisId, finding_id: findingId, label }),
   });
   const data = await res.json().catch(() => ({}));

@@ -77,6 +77,25 @@ npm run dev
 
 Entra a **http://localhost:5173**. Arriba a la derecha debe decir **"Motor listo · DINOv2 + SAM 2.1 (cpu)"**.
 
+### Base de datos local y cuentas
+
+Antes de usar el login, abre `data/qa_tester.sql` en MySQL Workbench y ejecútalo
+completo. Crea la base `qa_tester`, las tablas de usuarios, sesiones e historial.
+Después configura la conexión del backend (los valores por defecto son usuario
+`root`, contraseña vacía y MySQL en `127.0.0.1:3306`):
+
+```powershell
+$env:MYSQL_HOST="127.0.0.1"
+$env:MYSQL_PORT="3306"
+$env:MYSQL_USER="root"
+$env:MYSQL_PASSWORD="tu_contraseña"
+$env:MYSQL_DATABASE="qa_tester"
+```
+
+La contraseña de cada cuenta se guarda como hash bcrypt. Cada análisis se registra
+en `query_history` junto con su tipo, nombres de archivo, fecha y resultado JSON;
+no se guarda la contraseña ni archivos subidos por separado.
+
 ## 5. Cómo se usa
 
 ### Revisar captura

@@ -4,15 +4,20 @@ import json
 import threading
 import traceback
 import time
+import re
+from datetime import datetime, timezone
 
 import numpy as np
 from fastapi import APIRouter, Body, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel
 from PIL import Image, UnidentifiedImageError
 
 from app.ai import feedback, verifier as verifier_mod
+from app.auth import CurrentUser, create_session, hash_password, verify_password
 from app.ai.detector import status as detector_status, trained_elements
 from app.core.config import MAX_IMAGE_SIDE
+from app.db import execute, fetch_all, fetch_one, is_database_error
 from app.services import dino, sam, vlm
 from app.services.attention import check_attention
 from app.services.colors import check_colors, check_contrast
@@ -48,6 +53,17 @@ REASONS = {
     "degradado": "Es un degradado o fondo, no un elemento de la interfaz",
     "sistema": "No es parte de la página (sistema o navegador)",
 }
+
+
+class Credentials(BaseModel):
+    email: str
+    password: str
+
+
+class HistoryEntry(BaseModel):
+    mode: str
+    names: list[str]
+    result: dict
 
 
 def _verify(findings, rgb):
@@ -120,6 +136,99 @@ def save_feedback(analysis_id: str = Body(...), finding_id: int = Body(...), lab
     if not feedback.save(analysis_id, finding_id, label):
         raise HTTPException(404, "Ese análisis ya no está en memoria; vuelve a analizar la captura.")
     return {"ok": True, **feedback.stats()}
+
+
+def _email(value: str) -> str:
+    email = value.strip().lower()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise HTTPException(400, "Escribe un correo electrónico válido.")
+    return email
+
+
+@router.post("/auth/register")
+def register(credentials: Credentials):
+    email = _email(credentials.email)
+    if len(credentials.password) < 8:
+        raise HTTPException(400, "La contraseña debe tener al menos 8 caracteres.")
+    try:
+        user_id = execute(
+            "INSERT INTO users (email, password_hash) VALUES (%s, %s)",
+            (email, hash_password(credentials.password)),
+        )
+    except Exception as error:
+        if is_database_error(error) and getattr(error, "errno", None) == 1062:
+            raise HTTPException(409, "Ya existe una cuenta con ese correo.")
+        raise HTTPException(503, "No se pudo guardar el usuario. Verifica la conexión con MySQL.")
+    return {"token": create_session(user_id), "user": {"id": user_id, "email": email}}
+
+
+@router.post("/auth/login")
+def login(credentials: Credentials):
+    email = _email(credentials.email)
+    try:
+        user = fetch_one("SELECT id, email, password_hash FROM users WHERE email = %s", (email,))
+    except Exception:
+        raise HTTPException(503, "No se pudo conectar con MySQL. Ejecuta primero el script SQL.")
+    if not user or not verify_password(credentials.password, user["password_hash"]):
+        raise HTTPException(401, "Correo o contraseña incorrectos.")
+    return {"token": create_session(user["id"]), "user": {"id": user["id"], "email": user["email"]}}
+
+
+@router.get("/auth/me")
+def me(user: dict = CurrentUser):
+    return {"user": user}
+
+
+@router.post("/auth/logout")
+def logout(request: Request, user: dict = CurrentUser):
+    authorization = request.headers.get("Authorization", "")
+    token = authorization[7:].strip()
+    execute("DELETE FROM user_sessions WHERE user_id = %s AND token_hash = SHA2(%s, 256)", (user["id"], token))
+    return {"ok": True}
+
+
+@router.get("/history")
+def history(user: dict = CurrentUser):
+    rows = fetch_all(
+        "SELECT id, query_type, file_names, result, created_at FROM query_history "
+        "WHERE user_id = %s ORDER BY created_at DESC LIMIT 50",
+        (user["id"],),
+    )
+    return [
+        {
+            "id": row["id"],
+            "date": row["created_at"].isoformat(),
+            "mode": row["query_type"],
+            "names": json.loads(row["file_names"]) if isinstance(row["file_names"], str) else row["file_names"],
+            "files": {},
+            "result": json.loads(row["result"]) if isinstance(row["result"], str) else row["result"],
+        }
+        for row in rows
+    ]
+
+
+@router.post("/history")
+def save_history(entry: HistoryEntry, user: dict = CurrentUser):
+    if entry.mode not in ("analyze", "compare") or not entry.names or not isinstance(entry.result, dict):
+        raise HTTPException(400, "El registro de historial no tiene un formato válido.")
+    history_id = execute(
+        "INSERT INTO query_history (user_id, query_type, file_names, result) VALUES (%s, %s, %s, %s)",
+        (user["id"], entry.mode, json.dumps(entry.names), json.dumps(entry.result)),
+    )
+    return {
+        "id": history_id,
+        "date": datetime.now(timezone.utc).isoformat(),
+        "mode": entry.mode,
+        "names": entry.names,
+        "files": {},
+        "result": entry.result,
+    }
+
+
+@router.delete("/history")
+def clear_history(user: dict = CurrentUser):
+    execute("DELETE FROM query_history WHERE user_id = %s", (user["id"],))
+    return {"ok": True}
 
 
 @router.get("/health")

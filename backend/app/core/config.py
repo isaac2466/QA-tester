@@ -20,3 +20,12 @@ OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "600"))  # en CPU puede tarda
 VLM_MAX_SIDE = int(os.getenv("VLM_MAX_SIDE", "1024"))  # lado mayor de la imagen que ve el modelo
 
 CORS_ORIGINS =os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
+
+MYSQL_CONFIG = {
+    "host": os.getenv("MYSQL_HOST", "127.0.0.1"),
+    "port": int(os.getenv("MYSQL_PORT", "3306")),
+    "user": os.getenv("MYSQL_USER", "root"),
+    "password": os.getenv("MYSQL_PASSWORD", ""),
+    "database": os.getenv("MYSQL_DATABASE", "qa_tester"),
+}
+AUTH_TOKEN_DAYS = int(os.getenv("AUTH_TOKEN_DAYS", "7"))

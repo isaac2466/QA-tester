@@ -7,6 +7,8 @@
 fastapi==0.142.2
 uvicorn[standard]==0.54.0
 python-multipart==0.0.32
+mysql-connector-python==9.5.0
+bcrypt==5.0.0
 
 # Imágenes y visión por computadora
 pillow==13.0.0
