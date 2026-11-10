@@ -1,0 +1,21 @@
+{
+  "train_pantallas": 60,
+  "val_pantallas": 10,
+  "epocas": 20,
+  "val": {
+    "bloque": {
+      "recall": 0.8,
+      "precision": 0.8,
+      "tp": 180,
+      "fp": 45,
+      "fn": 45
+    },
+    "texto": {
+      "recall": 0.618,
+      "precision": 0.645,
+      "tp": 260,
+      "fp": 143,
+      "fn": 161
+    }
+  }
+}

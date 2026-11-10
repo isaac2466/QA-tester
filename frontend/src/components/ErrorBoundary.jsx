@@ -21,12 +21,12 @@ export default class ErrorBoundary extends Component {
   render() {
     if (!this.state.error) return this.props.children;
     return (
-      <div className="app">
+      <div className="page">
         <h1>Algo salió mal</h1>
         <p className="error">{String(this.state.error?.message ?? this.state.error)}</p>
         <div className="actions">
-          <button className="primary" onClick={() => location.reload()}>Recargar</button>
-          <button className="ghost" onClick={this.reset}>Borrar datos guardados y recargar</button>
+          <button className="btn primary" onClick={() => location.reload()}>Recargar</button>
+          <button className="btn ghost" onClick={this.reset}>Borrar datos guardados y recargar</button>
         </div>
       </div>
     );

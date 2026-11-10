@@ -5,3 +5,4 @@ backend/weights/
 dist/
 .venv/
 venv/
+backend/ai_data/
