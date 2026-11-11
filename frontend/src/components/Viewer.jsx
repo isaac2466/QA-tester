@@ -22,9 +22,25 @@ const rectStyle = ([x, y, w, h], [W, H]) => ({ left: pct(x, W), top: pct(y, H), 
 /** Recuadros numerados encima de la imagen, en % para que sigan al zoom. */
 function Boxes({ findings, size, selected, hovered, onSelect }) {
   const sel = findings.find((f) => f.id === selected);
+  const hoverTarget = findings.find((f) => f.id === hovered && f.box);
+  const selectedTarget = findings.find((f) => f.id === selected && f.box);
+  const hoverTargetId = hoverTarget?.id;
+  const [lastHovered, setLastHovered] = useState(null);
+  useEffect(() => {
+    if (hoverTargetId != null) setLastHovered(hoverTargetId);
+  }, [hoverTargetId]);
+  const highlighted = hoverTarget ?? selectedTarget ?? findings.find((f) => f.id === lastHovered && f.box);
+
   return (
     <div className="boxes">
       {sel?.ref_box && <div className="box ref" style={rectStyle(sel.ref_box, size)}><span>referencia</span></div>}
+      {highlighted && (
+        <div
+          className={`box-highlight sev-${highlighted.severity}`}
+          style={rectStyle(highlighted.box, size)}
+          aria-hidden="true"
+        />
+      )}
       {findings.filter((f) => f.box).map((f, _, all) => {
         // varios hallazgos sobre el mismo elemento: separa sus números en vez de encimarlos
         const stack = all.filter((o) => o.box.join() === f.box.join());

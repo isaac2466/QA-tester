@@ -17,8 +17,8 @@ export function useImageInfo(file) {
   return info;
 }
 
-/** Un archivo de entrada: vacío = zona para soltar; lleno = miniatura + datos + "Reemplazar". */
-export default function FileSlot({ label, file, onFile, hint }) {
+/** Un archivo de entrada: vacío = zona para soltar; lleno = miniatura + datos y acciones. */
+export default function FileSlot({ label, file, onFile, onClear, hint }) {
   const input = useRef(null);
   const [over, setOver] = useState(false);
   const info = useImageInfo(file);
@@ -59,7 +59,10 @@ export default function FileSlot({ label, file, onFile, hint }) {
         <span className="file-name" title={file.name}>{file.name || "imagen pegada"}</span>
         <small>{info?.w ? `${info.w} × ${info.h}` : "…"} · {formatBytes(file.size)}</small>
       </div>
-      <button type="button" className="btn outline" onClick={open}><Upload size={16} /> Reemplazar</button>
+      <div className="slot-actions">
+        <button type="button" className="btn outline" onClick={open}><Upload size={16} /> Reemplazar</button>
+        {onClear && <button type="button" className="btn ghost" onClick={onClear}>Limpiar</button>}
+      </div>
     </div>
   );
 }

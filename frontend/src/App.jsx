@@ -376,13 +376,13 @@ export default function App() {
 
         <section className="card filebar">
           {mode === "analyze" ? (
-            <FileSlot label="Captura de tu página" file={file} onFile={setFile} />
+            <FileSlot label="Captura de tu página" file={file} onFile={setFile} onClear={() => setFile(null)} />
           ) : (
             <>
-              <FileSlot label="Diseño de referencia" file={design} onFile={setDesign}
+              <FileSlot label="Diseño de referencia" file={design} onFile={setDesign} onClear={() => setDesign(null)}
                 hint="Exporta el frame de Figma como PNG · arrastra, clic o Ctrl+V" />
               <span className="divider" />
-              <FileSlot label="Implementación" file={impl} onFile={setImpl}
+              <FileSlot label="Implementación" file={impl} onFile={setImpl} onClear={() => setImpl(null)}
                 hint="Captura de tu página al mismo ancho y zoom 100%" />
             </>
           )}
