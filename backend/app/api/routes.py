@@ -26,7 +26,7 @@ from app.services.compare import compare
 from app.services.components import check_button_styles, check_components
 from app.services.findings import score
 from app.services.fixes import apply_fixes
-from app.services.layout import check_alignment, check_centering, check_spacing, detect_elements
+from app.services.layout import check_alignment, check_centering, check_spacing, check_stacked, check_text_rows, detect_elements
 from app.services.render import annotate, components_overlay, heatmap_overlay, to_data_url
 
 router = APIRouter(prefix="/api")
@@ -112,7 +112,7 @@ def _strict(findings, group_of):
             f.verdict = "descartado"
             f.verdict_reason = "Es una guía para landing pages, no un error. Consúltala en la vista «Atención (IA)»."
             continue
-        if f.verdict == "descartado" or f.source == "dinov2" or f.category in ("contraste", "sistema")                 or f.title.startswith("Demasiados colores"):
+        if f.verdict == "descartado" or f.source == "dinov2" or f.category in ("contraste", "sistema")                 or f.title.startswith(("Demasiados colores", "Texto fuera de línea", "Botón suelto")):
             continue
         if f.category == "alineacion" and f.box and f.ref_box:
             ga, gb = group_of.get(tuple(f.box)), group_of.get(tuple(f.ref_box))
@@ -275,6 +275,8 @@ async def analyze(file: UploadFile = File(...), estricto: bool = True):
         findings += color_findings
         findings += check_contrast(rgb, elems)
         findings += check_button_styles(rgb, elems)
+        findings += check_text_rows(elems)
+        findings += check_stacked(elems)
 
         attention, heat, groups, comps = None, None, [], None
         group_of: dict = {}
@@ -304,6 +306,16 @@ async def analyze(file: UploadFile = File(...), estricto: bool = True):
         if estricto:
             _strict(findings, group_of)
         dicts, annotated, aid = _pack(findings, rgb)
+        try:  # dato de entrenamiento real: la captura + lo que encontró (las marcas se suman en feedback.jsonl)
+            real = feedback.FILE.parent / "real"
+            real.mkdir(parents=True, exist_ok=True)
+            img.save(real / f"{aid}.png")
+            (real / f"{aid}.json").write_text(json.dumps(
+                {"size": list(img.size), "elements": [{"box": e.box, "kind": e.kind} for e in elems],
+                 "findings": [{k: d[k] for k in ("id", "category", "title", "box", "verdict")} for d in dicts]},
+                ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass
         fixed, applied = apply_fixes(rgb, [d for d in dicts if d["verdict"] != "descartado"], sam.get())
         return {
             "filename": file.filename,

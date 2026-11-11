@@ -309,3 +309,74 @@ def check_centering(elems: list[Element], width: int) -> list[Finding]:
                 fix={"type": "move", "box": e.box, "dx": -round(d), "dy": 0},
             ))
     return out[:5]
+
+
+def check_text_rows(elems: list[Element], max_findings=4) -> list[Finding]:
+    """Filas de textos parecidos (menús, enlaces): si casi todos coinciden y uno se sale, es error.
+
+    Ej.: "Funciones · Planes · Contacto" con "Planes" 20px más abajo.
+    """
+    page_w = max((e.right for e in elems), default=1)
+    # (una línea de 1500px de ancho es un borde entre secciones, no un texto)
+    texts = [e for e in elems if e.kind == "texto" and 10 <= e.h <= 60 and e.w < 0.5 * page_w]
+    # un texto con otro justo arriba o abajo es parte de una lista o párrafo, no de un menú
+    def in_column(e):
+        return any(o is not e and _overlap(e.x, e.right, o.x, o.right) > 0.3 * min(e.w, o.w)
+                   and 0 < abs(o.cy - e.cy) <= 2.2 * max(e.h, o.h) for o in texts)
+    texts = sorted([e for e in texts if not in_column(e)], key=lambda e: e.x)
+    out, used = [], set()
+    for a in texts:
+        if id(a) in used:
+            continue
+        row = [b for b in texts if abs(b.h - a.h) <= max(3, 0.2 * a.h) and abs(b.cy - a.cy) <= 1.5 * a.h
+               and (b is a or _overlap(a.x, a.right, b.x, b.right) == 0)]
+        row.sort(key=lambda e: e.x)
+        # vecinos razonablemente cerca (un menú, no dos textos en extremos opuestos)
+        chain = [row[0]] if row else []
+        for b in row[1:]:
+            if b.x - chain[-1].right < 260:
+                chain.append(b)
+        if len(chain) < 3:
+            continue
+        med = float(np.median([e.cy for e in chain]))
+        aligned = [e for e in chain if abs(e.cy - med) <= 2]
+        if len(aligned) < 2:
+            continue
+        for e in chain:
+            used.add(id(e))
+            d = e.cy - med
+            if max(4, 0.25 * e.h) <= abs(d) <= 1.5 * e.h:
+                ref = min(aligned, key=lambda r: abs(r.cx - e.cx))
+                out.append(Finding(
+                    category="alineacion", severity="alta",
+                    title=f"Texto fuera de línea ({abs(d):.0f}px)",
+                    detail=f"En una fila de {len(chain)} textos ({len(aligned)} alineados entre sí), este está "
+                           f"{abs(d):.0f}px más {'abajo' if d > 0 else 'arriba'} que los demás. Típico de un menú con un enlace movido.",
+                    suggestion=f"Súbelo {abs(d):.0f}px" if d > 0 else f"Bájalo {abs(d):.0f}px",
+                    box=e.box, ref_box=ref.box,
+                    fix={"type": "move", "box": e.box, "dx": 0, "dy": -round(d)},
+                ))
+    return out[:max_findings]
+
+
+def check_stacked(elems: list[Element]) -> list[Finding]:
+    """Un botón justo debajo de otro debe alinearse a su izquierda, centro o derecha (p. ej. "Ver demo")."""
+    blocks = [e for e in elems if e.kind == "bloque" and 20 <= e.h <= 80 and e.w >= 40]
+    out = []
+    for a in blocks:
+        for b in blocks:
+            if b is a or not (0 <= b.y - a.bottom <= 40) or _overlap(a.x, a.right, b.x, b.right) < 0.3 * min(a.w, b.w):
+                continue
+            opts = {"izquierda": b.x - a.x, "centro": b.cx - a.cx, "derecha": b.right - a.right}
+            name, d = min(opts.items(), key=lambda kv: abs(kv[1]))
+            if 5 <= abs(d) <= 0.5 * a.w:
+                out.append(Finding(
+                    category="alineacion", severity="media",
+                    title=f"Botón suelto: no se alinea con el de arriba ({abs(d):.0f}px)",
+                    detail=f"Está justo debajo de otro botón pero no coincide ni a la izquierda, ni al centro, ni a la derecha. "
+                           f"Lo más cercano es alinearlo a la {name} ({abs(d):.0f}px).",
+                    suggestion=f"Muévelo {abs(d):.0f}px a la {'izquierda' if d > 0 else 'derecha'} para alinearlo a la {name}, "
+                               f"o agrúpalos en un mismo contenedor (flex/column con align-items).",
+                    box=b.box, ref_box=a.box, fix={"type": "move", "box": b.box, "dx": -round(d), "dy": 0},
+                ))
+    return out[:4]

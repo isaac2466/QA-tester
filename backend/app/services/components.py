@@ -103,7 +103,7 @@ def _size_findings(members: list[Element], noun, attr: str) -> list[Finding]:
     out = []
     for e in members:
         d = getattr(e, attr) - value
-        if not (1 <= abs(d) <= max(12, 0.25 * value)):
+        if not (2 <= abs(d) <= max(12, 0.25 * value)):  # 1px es ruido de la imagen
             continue  # igual a la mayoría, o tan distinto que seguramente es otra variante
         ref = _nearest(e, [m for m in members if getattr(m, attr) == value])
         prop = "padding vertical, line-height o border" if attr == "h" else "width, padding horizontal o el texto"
@@ -180,8 +180,20 @@ def _row_offsets(members, noun) -> list[Finding]:
 def check_button_styles(rgb: np.ndarray, elems: list[Element]) -> list[Finding]:
     """Inventario de botones: cuántos estilos distintos (color + alto) hay en la página."""
     from app.services.colors import _chroma_hue
+    # un botón tiene texto adentro (si no, es un pedazo de fondo o decoración): "tinta" de otro color
+    # que ocupa una parte chica del botón, típica de letras
+    def has_text(b):
+        m = max(2, b.h // 6)
+        px = rgb[b.y + m:b.bottom - m, b.x + m:b.right - m].reshape(-1, 3).astype(np.float32)
+        if not len(px):
+            return False
+        ink = float(np.mean(np.linalg.norm(px - _fill(rgb, b).astype(np.float32), axis=1) > 80))
+        return 0.04 <= ink <= 0.45
     btns = [e for e in elems if e.kind == "bloque" and 20 <= e.h <= 64 and 1.5 <= e.w / e.h <= 10
-            and _chroma_hue(_fill(rgb, e))[0] > 30]
+            and _chroma_hue(_fill(rgb, e))[0] > 30 and has_text(e)]
+    # un pedazo de botón no es otro botón: nos quedamos con el más grande
+    btns = [e for e in btns if not any(o is not e and o.area > e.area and o.x - 3 <= e.x and o.y - 3 <= e.y
+                                       and e.right <= o.right + 3 and e.bottom <= o.bottom + 3 for o in btns)]
     styles: list[list] = []
     for e in btns:
         f = _fill(rgb, e)
@@ -194,13 +206,52 @@ def check_button_styles(rgb: np.ndarray, elems: list[Element]) -> list[Finding]:
     if len(styles) <= 3:
         return []
     desc = ", ".join(f"{hex_of(f)} ({h}px de alto)" for f, h, _ in styles[:6])
+    # principal = el estilo del botón más grande (suele ser la acción principal);
+    # secundario = el más repetido de los demás. El resto se pinta con el más cercano de esos dos.
+    by_size = sorted(styles, key=lambda s: -max(e.area for e in s[2]))
+    primary = by_size[0]
+    rest = sorted(by_size[1:], key=lambda s: -len(s[2]))
+    secondary = rest[0]
+    from app.services.colors import contrast_ratio
+
+    def text_color(b, fill):
+        # sólo el interior (las esquinas redondeadas traen fondo de afuera) y los pixeles más distintos al relleno
+        m = max(3, b.h // 6)
+        px = rgb[b.y + m:b.bottom - m, b.x + m:b.right - m].reshape(-1, 3).astype(np.float32)
+        if len(px) < 20:
+            return None
+        dist = np.linalg.norm(px - np.asarray(fill, dtype=np.float32), axis=1)
+        far = px[dist >= max(60, np.percentile(dist, 95))]
+        return np.median(far, axis=0) if len(far) > 10 else None
+
+    changes = []
+    for f, _, members in styles:
+        if f is primary[0] or f is secondary[0]:
+            continue
+        ink = text_color(members[0], f)
+        # sólo colores con los que SU texto se siga leyendo (letras blancas nunca sobre verde lima)
+        options = [c for c in (primary[0], secondary[0]) if ink is None or contrast_ratio(ink, c) >= 3]
+        if not options:
+            continue
+        to = min(options, key=lambda c: delta_e(f, c))
+        changes += [{"box": e.box, "from": hex_of(f), "to": hex_of(to)} for e in members]
+    from app.services.colors import _darken_bg, luminance
+    white = np.array([255.0, 255.0, 255.0])
+    for f, _, members in styles:
+        ink = text_color(members[0], f)
+        if ink is not None and luminance(ink) < 0.2 and contrast_ratio(white, f) < 4.5:
+            new = _darken_bg(f, white, 4.8)  # mismo tono, más oscuro, para que el texto blanco se lea
+            done = {tuple(c["box"]) for c in changes}
+            changes = [c for c in changes if tuple(c["box"]) not in {tuple(e.box) for e in members}]
+            changes += [{"box": e.box, "from": hex_of(f), "to": hex_of(new), "ink": hex_of(ink)} for e in members]
     return [Finding(
         category="sistema", severity="media",
         title=f"{len(styles)} estilos de botón distintos",
         detail=f"Hay {len(btns)} botones con {len(styles)} combinaciones de color y tamaño: {desc}. "
                f"Así ninguno se ve como la acción principal.",
-        suggestion="Define 2-3 estilos: uno primario (la acción principal, un solo color fuerte), uno secundario "
-                   "(contorno o color neutro) y, si hace falta, uno de texto. Usa el mismo alto para todos.",
+        suggestion=f"Usa 2 estilos: principal {hex_of(primary[0])} (la acción más importante) y secundario "
+                   f"{hex_of(secondary[0])} para lo demás. En la vista corregida se ven así los {len(changes)} botones restantes.",
+        fix={"type": "recolor_many", "items": changes} if changes else None,
     )]
 
 

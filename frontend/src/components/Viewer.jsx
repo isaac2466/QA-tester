@@ -6,13 +6,13 @@ const VIEWS = {
   analyze: [
     { key: "findings", label: "Hallazgos", icon: Target, boxes: true },
     { key: "fixed", label: "Vista corregida", icon: Wand, needs: "fixed" },
-    { key: "heatmap", label: "Atención (IA)", icon: Eye, needs: "heatmap" },
-    { key: "components", label: "Componentes (IA)", icon: Sparkles, needs: "components" },
+    { key: "heatmap", label: "Atención", icon: Eye, needs: "heatmap" },
+    { key: "components", label: "Vista de la IA", icon: Sparkles, needs: "components" },
   ],
   compare: [
     { key: "side", label: "Lado a lado", icon: Columns, boxes: true },
     { key: "overlay", label: "Superponer", icon: Layers, boxes: true },
-    { key: "semantic", label: "Diferencias (IA)", icon: Diff, needs: "semantic", boxes: true },
+    { key: "semantic", label: "Diferencias", icon: Diff, needs: "semantic", boxes: true },
   ],
 };
 const ZOOMS = [["fit", "Ajustar"], [0.5, "50 %"], [1, "100 %"], [1.5, "150 %"], [2, "200 %"]];
@@ -197,7 +197,7 @@ export default function Viewer({ mode, result, sourceUrl, findings, selected, ho
       )}
       {view === "heatmap" && <p className="legend">Rojo = lo que más llama la atención según DINOv2 · Azul = lo que pasa desapercibido.</p>}
       {view === "components" && (
-        <p className="legend">Cada color es un grupo de elementos que DINOv2 reconoce como el mismo componente (A1, A2… son del mismo grupo).</p>
+        <p className="legend">Así agrupa la IA tu interfaz: cada color son elementos que considera el mismo componente (A1, A2… del mismo grupo). Sólo se muestran grupos de 3 o más, que son los que usa para comparar. Si ves un grupo que no tiene sentido, sus hallazgos probablemente tampoco.</p>
       )}
     </section>
   );

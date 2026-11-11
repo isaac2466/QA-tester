@@ -119,38 +119,17 @@ export default function FindingsPanel({
         <Score value={scoreOf(findings)} />
       </header>
 
-      <section className="engines" aria-label="Motores de IA">
-        {result.dino?.loaded ? (
-          <Engine name="DINOv2">
-            <span>
-              {findings.length > 0 && <><b>{byDino}/{findings.length}</b> hallazgos</>}
-              {result.stats?.matched != null && <> · emparejó <b>{result.stats.matched}/{result.stats.design_elements}</b></>}
-              {result.stats?.semantic_similarity != null && <> · parecido <b>{(result.stats.semantic_similarity * 100).toFixed(0)}%</b></>}
-              {result.components?.length > 0 && (
-                <span className="muted" title={result.components.map((c) => `${c.count} ${c.label}`).join(", ")}>
-                  {" "}· {result.components.length} {result.components.length === 1 ? "grupo" : "grupos"} de componentes
-                </span>
-              )}
-            </span>
-          </Engine>
-        ) : (
-          <Engine name="DINOv2" tone="warn"><span className="warn-text" title={result.dino?.error}>No cargado: análisis sin IA</span></Engine>
-        )}
-        {mode === "analyze" && (
-          <Engine name="SAM 2.1" tone={result.sam?.loaded ? "" : "off"}>
-            <span>
-              {result.fixes_applied?.length
-                ? <><b>{result.fixes_applied.length}</b> correcciones en la vista corregida</>
-                : <span className="muted">Sin correcciones automáticas</span>}
-              {!result.sam?.loaded && <span className="muted"> · sin siluetas</span>}
-            </span>
-          </Engine>
-        )}
-        {mode === "analyze" && (
+      <p className="panel-summary">
+        {result.dino?.loaded ? "Revisado con DINOv2" : "Revisado sin IA (DINOv2 no cargó)"}
+        {mode === "analyze" && result.sam?.loaded && result.fixes_applied?.length > 0 && <> · {result.fixes_applied.length} correcciones listas en «Vista corregida»</>}
+        {result.stats?.matched != null && <> · {result.stats.matched} de {result.stats.design_elements} elementos emparejados</>}
+      </p>
+      {mode === "analyze" && (qwen || qwenStatus?.available) && (
+        <section className="engines" aria-label="Explicaciones">
           <QwenRow qwen={qwen} qwenStatus={qwenStatus} explained={explained} falsePositives={falsePositives}
             onExplain={onExplain} onIgnoreMany={onIgnoreMany} />
-        )}
-      </section>
+        </section>
+      )}
 
       <div className="filters">
         {chips.map(([k, label, n]) => (
@@ -189,7 +168,6 @@ export default function FindingsPanel({
                     <span className={`pill sev-${f.severity}`}>{SEVERITY[f.severity]}</span>
                   </span>
                   <span className="tags">
-                    <span className="cat">{CATEGORY[f.category] ?? f.category}</span>
                     {f.source === "dinov2" && (
                       <span className="tag ai" title="Hallazgo encontrado por la IA (DINOv2). El % es su parecido visual.">
                         <Sparkles size={11} /> DINOv2{f.confidence != null && ` ${Math.round(f.confidence * 100)}%`}
@@ -243,19 +221,25 @@ export default function FindingsPanel({
                         <Target size={15} /> Ver zona
                       </button>
                     )}
-                    {marked[f.id] ? (
-                      <span className="fixed-tag"><Check size={12} /> Marcado como error · la IA aprende</span>
-                    ) : (
-                      <button type="button" className="btn ghost sm" onClick={() => onConfirm(f.id)} title="Enseña a la IA que esto SÍ es un error">
-                        <Check size={15} /> Sí es error
-                      </button>
-                    )}
-                    <button type="button" className="btn ghost sm" onClick={() => onIgnore(f.id)} title="Enseña a la IA que esto NO es un error">
-                      <EyeOff size={15} /> No es error
-                    </button>
                   </div>
                 </div>
               )}
+              {/* siempre visible: cada respuesta entrena a la red neuronal */}
+              <div className="teach" role="group" aria-label="¿Es un error real?">
+                {marked[f.id] ? (
+                  <span className="teach-done"><Check size={13} /> Marcado como error</span>
+                ) : (
+                  <>
+                    <span className="teach-q">¿Es un error real?</span>
+                    <button type="button" className="teach-btn yes" onClick={() => onConfirm(f.id)} title="Enseña a la IA que esto SÍ es un error">
+                      <Check size={13} /> Sí
+                    </button>
+                    <button type="button" className="teach-btn no" onClick={() => onIgnore(f.id)} title="Enseña a la IA que esto NO es un error (se quita de la lista)">
+                      <EyeOff size={13} /> No
+                    </button>
+                  </>
+                )}
+              </div>
             </li>
           );
         })}
@@ -271,6 +255,12 @@ export default function FindingsPanel({
           )}
           {showDiscarded && (
             <ul>{discarded.map((f) => <li key={f.id}><b>{f.title}</b> — {f.verdict_reason}</li>)}</ul>
+          )}
+          {learning && (
+            <p className="learning" title="La red neuronal se reentrena sola cada 5 marcas y empieza a decidir a partir de 30.">
+              La IA ha aprendido de {learning.marcas} {learning.marcas === 1 ? "marca" : "marcas"}
+              {learning.red_decide ? " · ya descarta sola lo que marcaste como no error" : ` · decide sola a partir de ${learning.minimo_para_decidir ?? 30}`}
+            </p>
           )}
         </div>
       )}

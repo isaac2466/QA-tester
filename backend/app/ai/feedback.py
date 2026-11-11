@@ -51,11 +51,34 @@ def _load():
     return _memory
 
 
+CACHE_DIR = FILE.parent / "analisis"
+
+
+def _from_disk(analysis_id: str, finding_id: int):
+    p = CACHE_DIR / f"{analysis_id}.npz"
+    if not analysis_id.isalnum() or not p.exists():
+        return None
+    d = np.load(p)
+    hit = np.nonzero(d["ids"] == finding_id)[0]
+    if not len(hit):
+        return None
+    category, title = json.loads(str(d["meta"][hit[0]]))
+    return d["emb"][hit[0]].astype(np.float32), category, title
+
+
 def remember_analysis(items: dict) -> str:
     """Guarda las huellas de un análisis para poder recibir sus marcas después."""
     aid = uuid.uuid4().hex[:12]
     with _lock:
         _cache[aid] = items
+        try:  # también en disco: si el servidor se reinicia, tus marcas sobre este análisis siguen sirviendo
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            np.savez_compressed(CACHE_DIR / f"{aid}.npz",
+                                ids=np.array(list(items), dtype=np.int32),
+                                emb=np.stack([v[0] for v in items.values()]) if items else np.zeros((0, 1)),
+                                meta=np.array([json.dumps([v[1], v[2]], ensure_ascii=False) for v in items.values()]))
+        except OSError:
+            pass
         while len(_cache) > 50:
             _cache.popitem(last=False)
     return aid
@@ -65,9 +88,12 @@ def save(analysis_id: str, finding_id: int, label: str) -> bool:
     with _lock:
         item = _cache.get(analysis_id, {}).get(finding_id)
         if item is None:
+            item = _from_disk(analysis_id, finding_id)
+        if item is None:
             return False
         emb, category, title = item
-        rec = {"label": label, "category": category, "title": title, "emb": [round(float(v), 5) for v in emb]}
+        rec = {"label": label, "category": category, "title": title, "analysis_id": analysis_id,
+               "finding_id": finding_id, "emb": [round(float(v), 5) for v in emb]}
         FILE.parent.mkdir(parents=True, exist_ok=True)
         with FILE.open("a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")

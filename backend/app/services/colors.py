@@ -175,6 +175,23 @@ def _fix_contrast(fg, bg, need: float) -> np.ndarray:
     return goal
 
 
+def _button_around(text, elems, rgb):
+    """El bloque más pequeño que contiene al texto (su botón), si lo hay."""
+    cands = [b for b in elems if b.kind == "bloque" and b.x - 2 <= text.x and b.y - 2 <= text.y
+             and text.right <= b.right + 2 and text.bottom <= b.bottom + 2 and b.h <= 4 * text.h]
+    return min(cands, key=lambda b: b.area) if cands else None
+
+
+def _darken_bg(bg, fg, need: float) -> np.ndarray:
+    """Oscurece el fondo (sin cambiar su tono) hasta que el texto cumpla el contraste."""
+    bg = np.asarray(bg, dtype=np.float64)
+    for t in np.linspace(0, 1, 41):
+        c = bg * (1 - t)
+        if contrast_ratio(fg, c) >= need:
+            return np.round(c)
+    return np.zeros(3)
+
+
 def check_contrast(rgb: np.ndarray, elems: list[Element]) -> list[Finding]:
     H, W = rgb.shape[:2]
     out = []
@@ -199,6 +216,22 @@ def check_contrast(rgb: np.ndarray, elems: list[Element]) -> list[Finding]:
         large = e.h >= 24  # aprox. ≥18pt
         need = 3.0 if large else 4.5
         if ratio < need:
+            # Regla de botones: texto claro sobre un fondo de color = botón. El texto blanco es la seña de
+            # "esto se puede presionar", así que se conserva y se oscurece el fondo (mismo tono).
+            btn = _button_around(e, elems, rgb) if luminance(fg) > luminance(bg) and _chroma_hue(bg)[0] > 25 else None
+            if btn is not None:
+                new_bg = _darken_bg(bg, fg, need + 0.3)
+                out.append((ratio, Finding(
+                    category="contraste", severity="alta" if ratio < 3 else "media",
+                    title=f"Texto del botón poco legible {ratio:.1f}:1 (mínimo {need:g}:1)",
+                    detail=f"Texto {hex_of(fg)} sobre el botón {hex_of(bg)} en x={e.x}, y={e.y}: el color del botón es "
+                           f"demasiado claro para su texto.",
+                    suggestion=f"Oscurece el fondo del botón a {hex_of(new_bg)} ({contrast_ratio(fg, new_bg):.1f}:1) y deja el "
+                               f"texto en {hex_of(fg)}: el texto claro sobre color es lo que hace que se reconozca como botón.",
+                    box=btn.box,
+                    fix={"type": "recolor", "box": btn.box, "from": hex_of(bg), "to": hex_of(new_bg)},
+                )))
+                continue
             target = _fix_contrast(fg, bg, need + 0.3)
             out.append((ratio, Finding(
                 category="contraste",

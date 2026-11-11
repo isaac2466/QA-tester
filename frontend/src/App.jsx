@@ -78,12 +78,39 @@ function AuthScreen({ onAuthenticated }) {
   );
 }
 
+/** Mientras se revisa la sesión: el esqueleto de la app, para que se note que está cargando. */
+function AppSkeleton() {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setSlow(true), 4000);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <div className="app app-skeleton" role="status" aria-label="Cargando Lynx">
+      <header className="topbar">
+        <span className="sk" style={{ width: 96, height: 26 }} />
+        <span className="sk" style={{ width: 220, height: 22 }} />
+      </header>
+      <main className="page">
+        <span className="sk" style={{ width: "min(420px, 80%)", height: 40 }} />
+        <span className="sk" style={{ width: "min(560px, 95%)", height: 18, marginTop: 12 }} />
+        <span className="sk" style={{ width: 340, height: 44, marginTop: 28 }} />
+        <span className="sk" style={{ width: "100%", height: 96, marginTop: 14 }} />
+        <span className="sk" style={{ width: "100%", height: 220, marginTop: 20 }} />
+        
+      </main>
+    </div>
+  );
+}
+
 function StatusPill({ status }) {
   const [tone, text] = !status ? ["partial", "Conectando…"]
-    : status.status === "down" ? ["down", "Backend apagado · reintentando"]
-    : status.dino?.loaded ? ["ok", `Motor listo · DINOv2${status.sam?.loaded ? " + SAM 2.1" : ""}${status.qwen?.available ? " + Qwen" : ""} (${status.dino.device})`]
-    : ["partial", "IA no disponible"];
-  const tip = [status?.dino?.error, status?.qwen && !status.qwen.available && `Qwen: ${status.qwen.error}`].filter(Boolean).join(" · ");
+    : status.status === "down" ? ["down", "Sin conexión con el servidor"]
+    : status.dino?.loaded ? ["ok", "Listo para analizar"]
+    : ["partial", "Iniciando…"];
+  const tip = status?.dino?.loaded
+    ? `DINOv2${status.sam?.loaded ? " + SAM 2.1" : ""}${status.qwen?.available ? " + Qwen" : ""} en ${status.dino.device}`
+    : status?.dino?.error ?? "";
   return <span className={`status ${tone}`} title={tip}><i />{text}</span>;
 }
 
@@ -428,7 +455,7 @@ export default function App() {
   const ignoreMany = (ids) => setIgnored((i) => ({ ...i, [mode]: [...new Set([...(i[mode] ?? []), ...ids])] }));
   const locate = (id) => { setSelected(id); setFocusTick((t) => t + 1); };
 
-  if (!authReady) return <main className="page"><p className="muted">Cargando sesión…</p></main>;
+  if (!authReady) return <AppSkeleton />;
   if (!user) return <AuthScreen onAuthenticated={(nextUser) => {
     setUser(nextUser);
     getHistory().then(setHistory).catch((e) => setError(e.message));
@@ -515,32 +542,31 @@ export default function App() {
                 hint="Captura de tu página al mismo ancho y zoom 100%" />
             </>
           )}
-          <span className="divider" />
+          <div className="filebar-actions">
           {mode === "analyze" && (
             <>
               <div className="engine" role="radiogroup" aria-label="Tipo de revisión">
-                <span className="engine-label">Tipo de revisión</span>
                 <div className="engine-options">
                   <button type="button" role="radio" aria-checked={!qwenOn} className={!qwenOn ? "active" : ""}
                     onClick={() => setDetailed(false)} title="Sólo DINOv2 + SAM 2.1: resultados en segundos">
-                    <b>Rápida</b><small>DINOv2 + SAM · segundos</small>
+                    <b>Rápida</b><small>Unos segundos</small>
                   </button>
                   <button type="button" role="radio" aria-checked={qwenOn} className={qwenOn ? "active" : ""}
                     disabled={!qwenReady} onClick={() => setDetailed(true)}
                     title={qwenReady
                       ? "Además, Qwen3-VL explica cada hallazgo y marca los posibles falsos positivos. En CPU tarda ~1 min por hallazgo."
                       : `Qwen no disponible: ${status?.qwen?.error ?? "revisa que Ollama esté abierto"}`}>
-                    <b>Detallada</b><small>+ Qwen · ~1 min por hallazgo</small>
+                    <b>Detallada</b><small>Explica cada hallazgo · ~1 min</small>
                   </button>
                 </div>
               </div>
-              <span className="divider" />
             </>
           )}
           <button type="button" className="btn primary lg" disabled={!ready || loading} onClick={run}>
             {loading ? <span className="spinner" /> : <Play />}
             {loading ? "Analizando…" : result ? "Analizar de nuevo" : mode === "analyze" ? "Analizar" : "Comparar"}
           </button>
+          </div>
         </section>
 
         {error && <p className="error" role="alert">{error}</p>}
@@ -591,15 +617,12 @@ export default function App() {
                 </div>
               ) : mode === "analyze" ? (
                 <>
-                  <h2>¿Qué revisa?</h2>
-                  <ul className="checks">
-                    <li><b>Alineación y espaciado</b> con precisión de 1px.</li>
-                    <li><b>Colores</b> casi duplicados y <b>contraste</b> WCAG.</li>
-                    <li><b>Consistencia (IA):</b> DINOv2 agrupa los componentes iguales (botones, tarjetas…) y encuentra el que no coincide.</li>
-                    <li><b>Atención (IA):</b> qué zona llama la mirada y si tu botón principal destaca.</li>
-                    <li><b>Explicación (Qwen):</b> explica cada hallazgo y te avisa cuál parece un falso positivo.</li>
-                    <li><b>Desde una URL:</b> revisa tu página en móvil, tablet y escritorio de una vez.</li>
-                  </ul>
+                  <h2>Esto es lo que revisamos</h2>
+                  <div className="checks-grid">
+                    <div><h3>Alineación y espaciado</h3><p>Elementos que se salen de línea por pocos píxeles y separaciones que no coinciden.</p></div>
+                    <div><h3>Componentes consistentes</h3><p>Botones, tarjetas y etiquetas iguales que cambian de tamaño, color o altura sin razón.</p></div>
+                    <div><h3>Contraste y color</h3><p>Textos difíciles de leer y demasiados colores compitiendo por atención.</p></div>
+                  </div>
                 </>
               ) : (
                 <>

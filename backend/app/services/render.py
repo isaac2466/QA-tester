@@ -47,6 +47,7 @@ def components_overlay(rgb: np.ndarray, groups: list[dict]) -> np.ndarray:
     img = (rgb.astype(np.float32) * 0.55 + 255 * 0.45).astype(np.uint8)  # fondo atenuado
     t = max(2, round(min(img.shape[:2]) / 400))
     scale = 0.45 * t
+    groups = [g for g in groups if g["count"] >= 3]
     for gi, g in enumerate(groups[:len(GROUP_COLORS)]):
         color = GROUP_COLORS[gi]
         letter = chr(ord("A") + gi)

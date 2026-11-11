@@ -129,6 +129,14 @@ def apply_fixes(rgb: np.ndarray, findings: list[dict], sam=None) -> tuple[np.nda
                 img[m] = dst.astype(np.uint8)
                 applied.append(f["id"])
                 global_done.add((fx["from"], fx["to"]))
+        elif fx["type"] == "recolor_many":
+            boxes = [it["box"] for it in fx["items"]]
+            masks = sam.masks(img, boxes) if sam else [None] * len(boxes)
+            for it, sm in zip(fx["items"], masks):
+                if it.get("ink"):  # letras oscuras → blancas (antes de cambiar el fondo)
+                    _text_color(img, it["box"], _rgb(it["from"]), _rgb(it["ink"]), np.array([255.0, 255.0, 255.0]))
+                _recolor(img, _element_mask(img.shape, it["box"], sm), _rgb(it["from"]), _rgb(it["to"]), tol=45)
+            applied.append(f["id"])
         elif fx["type"] == "text_color":
             _text_color(img, fx["box"], _rgb(fx["bg"]), _rgb(fx["fg"]), _rgb(fx["to"]))
             applied.append(f["id"])
