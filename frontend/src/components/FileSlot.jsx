@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { formatBytes } from "../utils/findings.js";
-import { Upload } from "./icons.jsx";
+import { Broom, Upload } from "./icons.jsx";
 
 /** Hook: URL temporal + dimensiones de una imagen (File/Blob). */
 export function useImageInfo(file) {
@@ -61,7 +61,7 @@ export default function FileSlot({ label, file, onFile, onClear, hint }) {
       </div>
       <div className="slot-actions">
         <button type="button" className="btn outline" onClick={open}><Upload size={16} /> Reemplazar</button>
-        {onClear && <button type="button" className="btn ghost" onClick={onClear}>Limpiar</button>}
+        {onClear && <button type="button" className="btn outline" onClick={onClear}><Broom size={16} /> Limpiar</button>}
       </div>
     </div>
   );
