@@ -1,4 +1,12 @@
 import os
+from pathlib import Path
+
+# Lee backend/.env (contraseña de MySQL, etc.). Ese archivo no se sube a git.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+except ImportError:
+    pass
 
 # Modelo DINOv2. La variante "with-registers" produce mapas de atención mucho más
 # limpios (sin los artefactos de alta norma del DINOv2 original).

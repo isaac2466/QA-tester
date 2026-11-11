@@ -9,8 +9,10 @@ from fastapi import FastAPI
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.projects import router as projects_router
 from app.api.routes import router
 from app.core.config import CORS_ORIGINS
+from app.schema import ensure_schema
 from app.services import dino, sam
 
 
@@ -24,6 +26,12 @@ async def lifespan(app: FastAPI):
     await run_in_threadpool(sam.load)
     ss = sam.status()
     print("SAM 2.1:", "cargado en " + ss["device"] if ss["loaded"] else "NO disponible -> " + str(ss["error"]))
+    # Proyectos e historial por tamaño: agrega a MySQL lo que falte (no borra nada)
+    try:
+        changes = await run_in_threadpool(ensure_schema)
+        print("MySQL:", "se agregó " + ", ".join(changes) if changes else "al día")
+    except Exception as e:  # sin MySQL la app sigue sirviendo el análisis
+        print("MySQL: no se pudo revisar la base ->", e)
     yield
 
 
@@ -35,6 +43,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(router)
+app.include_router(projects_router)
 
 if __name__ == "__main__":
     import uvicorn

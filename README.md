@@ -1,178 +1,114 @@
-# Lynx · QA visual con IA
+# Lynx · Novedades
 
-Sube una captura de tu página (o tu diseño de Figma y la implementación) y la IA te dice qué está mal: elementos desalineados, componentes con otro tamaño o color, texto difícil de leer y qué zona llama la atención. Además te muestra **cómo se vería corregida**.
+Lo nuevo en esta versión:
 
-Usa dos modelos de IA de Meta:
+- **Analizar desde una URL**: pegas la dirección de tu página y se revisa en **móvil, tablet y escritorio** de una sola vez.
+- **Proyectos**: agrupan los análisis de una misma página y muestran una **gráfica de cómo evoluciona el puntaje**.
+- **Comparar versiones**: eliges dos análisis de un proyecto y te dice qué errores se **arreglaron**, cuáles **siguen** y cuáles son **nuevos**.
+- **Base de datos con `.env`**: los datos de MySQL ya no se ponen en la terminal; van en un archivo.
 
-- **DINOv2**: entiende la imagen, reconoce qué elementos son "el mismo componente" y empareja el diseño con la implementación.
-- **SAM 2.1** (Segment Anything): recorta cada elemento con su silueta exacta para generar la vista corregida.
+> Si ya tenías el proyecto funcionando, solo sigue estos pasos.
 
-## 1. Instala esto (una sola vez)
-
-- **Python 3.12, 3.13 o 3.14** → https://www.python.org/downloads/ (marca **"Add python.exe to PATH"**)
-- **Node.js 22** → https://nodejs.org/
-- **Git** → https://git-scm.com/downloads
-- **Solo Windows:** https://aka.ms/vs/17/release/vc_redist.x64.exe (sin esto la IA no funciona)
-
-Después de instalar, **reinicia la PC**.
-
-## 2. Descarga el proyecto
+## 1. Actualiza el proyecto
 
 ```bash
-git clone https://github.com/isaac2466/QA-tester.git
-cd QA-tester
-git checkout RamaNeto
+git pull
 ```
 
-> La versión con la interfaz nueva y SAM está en la rama `RamaNeto`. Si ya tenías el proyecto, usa `git pull` en lugar de `git clone`.
+## 2. Instala las librerías nuevas
 
-## 3. Crea el entorno virtual e instala las librerías
+Con el entorno activo (`.\.venv\Scripts\Activate.ps1`), desde la carpeta `QA-tester`:
 
-Desde la carpeta `QA-tester`:
-
-**Windows (PowerShell):**
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
 python -m pip install -r backend/requirements.txt
-npm install --prefix frontend
 ```
 
-**Mac / Linux:**
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r backend/requirements.txt
-npm install --prefix frontend
+Se agregaron `playwright` (toma las capturas de las URLs), `python-dotenv` (lee el `.env`), `mysql-connector-python` y `bcrypt`.
+
+**Navegador para las capturas:** se usa el **Edge** o **Chrome** que ya tienes instalado. En Windows, Edge viene incluido, así que no hay que descargar nada más. Si no tienes ninguno, ejecuta una vez:
+
+```powershell
+python -m playwright install chromium
 ```
 
-- Sabrás que el entorno está activo porque aparece `(.venv)` al inicio de la línea. **Actívalo cada vez que abras una terminal nueva.**
-- El primer `pip install` tarda unos minutos (baja ~300 MB: PyTorch y las librerías de IA).
-- Usamos `python -m pip` en vez de `pip` a secas porque a veces el comando `pip` no queda instalado dentro del entorno.
+## 3. Configura MySQL con el archivo `.env`
 
-## 4. Ábrelo
+1. En la carpeta `backend`, copia `.env.example` y renombra la copia como **`.env`**.
+2. Ábrelo y escribe tu contraseña de MySQL en `MYSQL_PASSWORD=` (la misma con la que entras a Workbench).
 
-Abre **dos terminales** en la carpeta `QA-tester` y activa el entorno en las dos (`.\.venv\Scripts\Activate.ps1`).
+```
+MYSQL_HOST=127.0.0.1
+MYSQL_PORT=3306
+MYSQL_USER=root
+MYSQL_PASSWORD=tu_contraseña
+MYSQL_DATABASE=qa_tester
+```
 
-**Terminal 1 (backend + IA):**
-```bash
+> **No subas el `.env` a GitHub**: ya está en `.gitignore`. Escribe tu contraseña en el `.env`, **no** en el `.env.example`.
+
+## 4. Crea o actualiza la base de datos
+
+Desde la carpeta `backend`:
+
+```powershell
+python crear_bd.py
+```
+
+Debe decir: `Base de datos lista. Tablas: projects, query_history, user_sessions, users`.
+
+- Si **no tenías** la base, la crea completa.
+- Si **ya la tenías**, solo agrega lo nuevo (la tabla `projects` y tres columnas en `query_history`): **no borra nada**.
+- Se puede correr las veces que quieras.
+
+También puedes ejecutar `data/qa_tester.sql` en MySQL Workbench, pero ese archivo solo crea lo que no existe. Si ya tenías la base, usa `crear_bd.py`, que también agrega las columnas nuevas. De todos modos, el backend revisa la base al arrancar y agrega lo que falte.
+
+## 5. Arranca como siempre
+
+```powershell
+# Terminal 1
 cd backend
 uvicorn app.main:app --reload --port 8000
-```
 
-Espera a que aparezcan estas dos líneas:
-
-```
-DINOv2: cargado en cpu
-SAM 2.1: cargado en cpu
-```
-
-La **primera vez** tarda unos minutos porque descarga los modelos (DINOv2 ~90 MB y SAM 2.1 ~150 MB). Después arranca en segundos.
-
-**Terminal 2 (página web):**
-```bash
+# Terminal 2
 cd frontend
 npm run dev
 ```
 
-Entra a **http://localhost:5173**. Arriba a la derecha debe decir **"Motor listo · DINOv2 + SAM 2.1 (cpu)"**.
+Al arrancar, la Terminal 1 debe mostrar `MySQL: al día` (o `MySQL: se agregó ...` la primera vez).
 
-### Base de datos local y cuentas
+## Cómo se usan las novedades
 
-Antes de usar el login, abre `data/qa_tester.sql` en MySQL Workbench y ejecútalo
-completo. Crea la base `qa_tester`, las tablas de usuarios, sesiones e historial.
-Después configura la conexión del backend (los valores por defecto son usuario
-`root`, contraseña vacía y MySQL en `127.0.0.1:3306`):
+Arriba hay dos secciones: **Revisar** y **Proyectos**.
 
-```powershell
-$env:MYSQL_HOST="127.0.0.1"
-$env:MYSQL_PORT="3306"
-$env:MYSQL_USER="root"
-$env:MYSQL_PASSWORD="tu_contraseña"
-$env:MYSQL_DATABASE="qa_tester"
-```
+### Analizar una URL (Revisar)
+1. En **Revisar página**, elige **Desde una URL**.
+2. Pega la dirección (por ejemplo `misitio.com`) y elige los tamaños: Móvil (390 px), Tablet (820 px) y Escritorio (1440 px).
+3. Pulsa **Analizar**. Arriba de los resultados aparecen botones con el puntaje de cada tamaño para cambiar entre ellos.
 
-La contraseña de cada cuenta se guarda como hash bcrypt. Cada análisis se registra
-en `query_history` junto con su tipo, nombres de archivo, fecha y resultado JSON;
-no se guarda la contraseña ni archivos subidos por separado.
+Tarda unos segundos por tamaño. Si la página mide más de 4000 px de alto, solo se revisa esa parte y aparece un aviso.
 
-## 5. Cómo se usa
+### Proyectos
+1. Ve a **Proyectos** → **+ Nuevo proyecto**. Ponle nombre y, si quieres, la dirección de la página.
+2. Para guardar análisis en el proyecto, elígelo en **Guardar en** (junto a las pestañas de Revisar), o entra al proyecto y pulsa **Analizar ahora**.
+3. En el proyecto verás el último puntaje, cuánto mejoró, la **gráfica de evolución** (una línea por tamaño) y la tabla de versiones.
 
-### Revisar captura
-Sube una captura (arrastrar, clic o **Ctrl+V**) y pulsa **Analizar**. Tarda ~10-20 segundos en una PC sin GPU.
+### Comparar versiones
+En la tabla de versiones de un proyecto:
+- marca **2 versiones** y pulsa **Comparar**, o
+- usa el atajo **vs anterior** de cada fila.
 
-| Vista | Qué muestra |
-|---|---|
-| **Hallazgos** | Recuadros numerados sobre cada error. Clic en un hallazgo → **Ver zona** |
-| **Vista corregida** | Antes / después con slider: tu captura con las correcciones aplicadas |
-| **Atención (IA)** | Mapa de calor: qué zona llama la atención según DINOv2 |
-| **Componentes (IA)** | Cada color es un grupo de elementos que DINOv2 considera el mismo componente |
+Verás el puntaje antes y después y tres listas: **Arreglados**, **Siguen** y **Nuevos**, con las dos capturas lado a lado.
 
-Cada hallazgo indica si lo encontró la IA (etiqueta **DINOv2 · %**) y si su corrección está en la vista corregida (etiqueta verde).
-
-### Comparar diseños
-Sube el **diseño** (exporta el frame de Figma como PNG) y la **implementación** (captura de tu página al mismo ancho y con zoom 100%). DINOv2 empareja cada elemento y te dice qué se movió, qué cambió de tamaño o color, **qué falta** y **qué sobra**. Vistas: lado a lado, superponer (slider) y diferencias.
-
-### Otras opciones
-- **No es error**: quita un hallazgo de la lista y del puntaje.
-- **Historial**: tus últimos análisis.
-- **Exportar reporte**: descarga un HTML con la captura anotada y los hallazgos.
-
-## 6. Entrenar la IA (opcional)
-
-En `backend/app/ai/` está la parte que **entrenamos nosotros** (todavía no está conectada a la app):
-
-| Archivo | Qué hace |
-|---|---|
-| `dataset.py` | Genera pantallas falsas con errores plantados a propósito (los datos de entrenamiento) |
-| `detector.py` + `train_detector.py` | Red que aprende a **encontrar** los elementos, entrenada sobre DINOv2 |
-| `judge.py` | Red que aprenderá a **decidir** si un elemento tiene un error (falta su script de entrenamiento) |
-| `segment.py` | SAM en modo "encontrar todo" (en CPU tarda 3-4 min por captura; pensado para GPU) |
-
-Para entrenar el detector (con el entorno activo):
-
-```bash
-cd backend
-python -m app.ai.train_detector --train 60 --val 10 --epochs 20
-```
-
-| Tamaño | Comando | Tiempo aprox. (CPU) |
-|---|---|---|
-| Prueba rápida | `--train 60 --val 10 --epochs 20` | 10-15 min |
-| Mediano | `--train 120 --val 20 --epochs 30` | ~25 min |
-| Completo | `--train 300 --val 40 --epochs 40` | ~1 hora |
-
-- Las pantallas generadas se guardan en `backend/ai_data/` (no se suben a git). Si lo cortas, **retoma donde se quedó**.
-- **Pérdida**: qué tanto se equivoca; debe ir bajando. **Recall**: de los elementos que había, cuántos encontró. **Precisión**: de lo que encontró, cuánto era correcto.
-- El modelo se guarda en `backend/app/ai/weights/detector.pt` y sus métricas en `detector_metrics.json`.
+> Compara siempre el mismo tamaño (móvil con móvil): si comparas tamaños distintos, muchos hallazgos no van a coincidir.
 
 ## ¿No funciona?
 
 | Error | Solución |
 |---|---|
-| `WinError 126` o `shm.dll` | Instala el link de **Solo Windows** del paso 1 y reinicia |
-| `python` o `uvicorn` no se reconoce | Reinstala Python marcando **"Add python.exe to PATH"**, o activa el entorno (`.\.venv\Scripts\Activate.ps1`) |
-| "La ejecución de scripts está deshabilitada" al activar el entorno | Corre una vez `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` y vuelve a activarlo |
-| `pip` no se reconoce | Usa `python -m pip install -r backend/requirements.txt` |
-| `No module named 'app'` | Corre `uvicorn` **desde la carpeta `backend`** (`cd backend`) |
-| `No module named ...` (otro) | Activa el entorno y vuelve a correr el `pip install` |
-| "Backend apagado · reintentando" | Normal mientras carga la IA. Si no se quita, la Terminal 1 está cerrada o falló |
-| Abre otra app o `/api/health` da 404 | El puerto 8000 lo usa otro programa. Ciérralo, o usa otro puerto (ver abajo) |
-| Se ve un resultado viejo, sin "Vista corregida" | Es el último análisis guardado: pulsa **Analizar de nuevo** |
-| Aviso de *symlinks* en Windows | Es solo una advertencia al descargar los modelos; se puede ignorar |
-| Página en blanco | F12 → Console, y manda captura del error al grupo |
-
-**Usar otro puerto** (si el 8000 está ocupado):
-
-```powershell
-# Terminal 1
-uvicorn app.main:app --reload --port 8001
-
-# Terminal 2 (PowerShell)
-$env:BACKEND_URL="http://127.0.0.1:8001"; npm run dev
-```
-
-**Tips:**
-- Usa capturas en **PNG** y con el zoom del navegador al 100% (JPG mete ruido en los colores).
-- La IA funciona mejor con pantallas que tienen **componentes repetidos** (varios botones, tarjetas o etiquetas del mismo estilo).
-- Los hallazgos los genera una IA: **revísalos**, no todos son errores reales.
+| `No module named 'playwright'` (o `mysql`, `dotenv`) | Activa el entorno y vuelve a correr el paso 2 |
+| "No se encontró un navegador para tomar la captura" | Instala Edge o Chrome, o corre `python -m playwright install chromium` |
+| "No se encontró ese sitio" | Revisa que la URL esté bien escrita |
+| "La página tardó demasiado en cargar" | La página tardó más de 30 s. Prueba de nuevo o con menos tamaños |
+| `crear_bd.py` dice "No se pudo conectar a MySQL" | Revisa `MYSQL_USER` y `MYSQL_PASSWORD` en `backend/.env` y que MySQL esté encendido |
+| No puedo iniciar sesión / "Verifica la conexión con MySQL" | Falta el `.env` o tiene mal la contraseña. Corrígelo y **reinicia uvicorn** (el `.env` solo se lee al arrancar) |
+| La sección Proyectos sale vacía o con error | Corre `python crear_bd.py` (paso 4) y reinicia uvicorn |

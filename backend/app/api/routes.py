@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from PIL import Image, UnidentifiedImageError
 
 from app.ai import feedback, verifier as verifier_mod
+from app.api.projects import own_project
 from app.auth import CurrentUser, create_session, hash_password, verify_password
 from app.ai.detector import status as detector_status, trained_elements
 from app.core.config import MAX_IMAGE_SIDE
@@ -64,6 +65,9 @@ class HistoryEntry(BaseModel):
     mode: str
     names: list[str]
     result: dict
+    project_id: int | None = None
+    viewport: str | None = None  # "movil" | "tablet" | "escritorio" (si vino de una URL)
+    source_url: str | None = None
 
 
 def _verify(findings, rgb):
@@ -194,7 +198,7 @@ def logout(request: Request, user: dict = CurrentUser):
 @router.get("/history")
 def history(user: dict = CurrentUser):
     rows = fetch_all(
-        "SELECT id, query_type, file_names, result, created_at FROM query_history "
+        "SELECT id, project_id, query_type, viewport, file_names, result, created_at FROM query_history "
         "WHERE user_id = %s ORDER BY created_at DESC LIMIT 50",
         (user["id"],),
     )
@@ -203,6 +207,8 @@ def history(user: dict = CurrentUser):
             "id": row["id"],
             "date": row["created_at"].isoformat(),
             "mode": row["query_type"],
+            "project_id": row["project_id"],
+            "viewport": row["viewport"],
             "names": json.loads(row["file_names"]) if isinstance(row["file_names"], str) else row["file_names"],
             "files": {},
             "result": json.loads(row["result"]) if isinstance(row["result"], str) else row["result"],
@@ -215,14 +221,20 @@ def history(user: dict = CurrentUser):
 def save_history(entry: HistoryEntry, user: dict = CurrentUser):
     if entry.mode not in ("analyze", "compare") or not entry.names or not isinstance(entry.result, dict):
         raise HTTPException(400, "El registro de historial no tiene un formato válido.")
+    if entry.project_id is not None:
+        own_project(entry.project_id, user["id"])
     history_id = execute(
-        "INSERT INTO query_history (user_id, query_type, file_names, result) VALUES (%s, %s, %s, %s)",
-        (user["id"], entry.mode, json.dumps(entry.names), json.dumps(entry.result)),
+        "INSERT INTO query_history (user_id, project_id, query_type, viewport, source_url, file_names, result) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        (user["id"], entry.project_id, entry.mode, (entry.viewport or None) and entry.viewport[:20],
+         (entry.source_url or None) and entry.source_url[:2048], json.dumps(entry.names), json.dumps(entry.result)),
     )
     return {
         "id": history_id,
         "date": datetime.now(timezone.utc).isoformat(),
         "mode": entry.mode,
+        "project_id": entry.project_id,
+        "viewport": entry.viewport,
         "names": entry.names,
         "files": {},
         "result": entry.result,

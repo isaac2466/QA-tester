@@ -66,7 +66,7 @@ function Boxes({ findings, size, selected, hovered, onSelect }) {
 
 function Stage({ src, size, zoom, boxes, children, label }) {
   return (
-    <div className="stage" style={{ width: zoom === "fit" ? "100%" : size[0] * zoom }}>
+    <div className="stage" style={zoom === "fit" ? { width: "100%", maxWidth: size[0], marginInline: "auto" } : { width: size[0] * zoom }}>
       {label && <span className="stage-label">{label}</span>}
       <img src={src} alt={label ?? ""} draggable={false} />
       {children}
@@ -84,7 +84,7 @@ function OverlayStage({ design, impl, size, zoom, boxes, labels = ["Diseño de r
     setPos(Math.min(100, Math.max(0, ((e.clientX - r.left) / r.width) * 100)));
   };
   return (
-    <div ref={ref} className="stage overlay" style={{ width: zoom === "fit" ? "100%" : size[0] * zoom }}>
+    <div ref={ref} className="stage overlay" style={zoom === "fit" ? { width: "100%", maxWidth: size[0], marginInline: "auto" } : { width: size[0] * zoom }}>
       <img src={impl} alt="Implementación" draggable={false} />
       <img src={design} alt="Diseño" draggable={false} className="top-img" style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }} />
       <span className="stage-label">{labels[0]}</span>

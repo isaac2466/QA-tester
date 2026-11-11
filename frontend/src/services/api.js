@@ -72,3 +72,21 @@ export async function explainFindings(file, findings, signal) {
   )));
   return post("/api/explain", formData, signal);
 }
+
+// Proyectos: agrupan análisis para ver cómo evoluciona el puntaje
+export const getProjects = () => jsonRequest("/api/projects", "GET");
+export const createProject = (name, url) => jsonRequest("/api/projects", "POST", { name, url });
+export const deleteProject = (id) => jsonRequest(`/api/projects/${id}`, "DELETE");
+export const getProject = (id) => jsonRequest(`/api/projects/${id}`, "GET");
+export const getHistoryEntry = (id) => jsonRequest(`/api/history/${id}`, "GET");
+
+/** Toma capturas de una página en varios tamaños. Devuelve { url, shots: [{ size, label, width, height, file }] }. */
+export async function captureUrl(url, sizes) {
+  const data = await jsonRequest("/api/capture", "POST", { url, sizes });
+  const host = new URL(data.url).hostname.replace(/^www\./, "");
+  const shots = await Promise.all(data.shots.map(async ({ png_b64, ...s }) => {
+    const blob = await (await fetch(`data:image/png;base64,${png_b64}`)).blob();
+    return { ...s, file: new File([blob], `${host}-${s.size}.png`, { type: "image/png" }) };
+  }));
+  return { url: data.url, shots };
+}

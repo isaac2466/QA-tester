@@ -4,16 +4,21 @@ import FindingsPanel from "./components/FindingsPanel.jsx";
 import HistoryDrawer from "./components/HistoryDrawer.jsx";
 import Viewer from "./components/Viewer.jsx";
 import { Camera, Compare, History, Info, Logo, Play } from "./components/icons.jsx";
+import ProjectDetail from "./pages/ProjectDetail.jsx";
+import ProjectsPage from "./pages/ProjectsPage.jsx";
+import VersionCompare from "./pages/VersionCompare.jsx";
 import {
-  analyzeImage, clearHistory, compareImages, explainFindings, getHistory, health, login, logout, me,
-  register, saveHistory, sendFeedback,
+  analyzeImage, captureUrl, clearHistory, compareImages, explainFindings, getHistory, getHistoryEntry, getProjects,
+  health, login, logout, me, register, saveHistory, sendFeedback,
 } from "./services/api.js";
+import { go, useRoute } from "./utils/route.js";
 import { exportReport } from "./utils/report.js";
 import { load, save } from "./utils/storage.js";
 
 const HISTORY_MAX = 12;
 const QWEN_BATCH = 3; // hallazgos por llamada a Qwen: lotes chicos = ~2 min cada uno y si uno falla se pierde poco
 const QWEN_RETRIES = 1; // reintentos por lote antes de saltarlo
+const SIZES = [["movil", "Móvil", "390 px"], ["tablet", "Tablet", "820 px"], ["escritorio", "Escritorio", "1440 px"]];
 
 function AuthScreen({ onAuthenticated }) {
   const [mode, setMode] = useState("login");
@@ -101,6 +106,16 @@ export default function App() {
   const [hovered, setHovered] = useState(null);
   const [focusTick, setFocusTick] = useState(0);
   const [qwen, setQwen] = useState(null); // progreso de Qwen: { done, total, error }
+  const route = useRoute();
+  const [projects, setProjects] = useState(null);
+  const [projectsError, setProjectsError] = useState(null);
+  const [projectId, setProjectId] = useState(""); // proyecto donde se guarda el próximo análisis ("" = ninguno)
+  const [origin, setOrigin] = useState("file"); // "file" = subir captura · "url" = capturar una página
+  const [url, setUrl] = useState("");
+  const [sizes, setSizes] = useState(["movil", "tablet", "escritorio"]);
+  const [shots, setShots] = useState([]); // análisis de una URL: uno por tamaño { size, label, file, result, historyId }
+  const [activeShot, setActiveShot] = useState(0);
+  const [progress, setProgress] = useState(null); // texto del paso actual mientras se analiza una URL
   // Revisión "detallada" = DINOv2 + SAM y además Qwen. Se recuerda en este navegador.
   const [detailed, setDetailedRaw] = useState(() => {
     try { return localStorage.getItem("qa-detailed") === "1"; } catch { return false; }
@@ -145,6 +160,12 @@ export default function App() {
         setImplRaw(s.impl ?? null);
         setResults(s.results ?? {});
         setIgnored(s.ignored ?? {});
+        setOrigin(s.origin ?? "file");
+        setUrl(s.url ?? "");
+        setSizes(s.sizes?.length ? s.sizes : ["movil", "tablet", "escritorio"]);
+        setProjectId(s.projectId ?? "");
+        setShots(s.shots ?? []);
+        setActiveShot(s.activeShot ?? 0);
       }
       setHydrated(true);
     });
@@ -169,8 +190,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (hydrated) save("session", { mode, file, design, impl, results, ignored });
-  }, [hydrated, mode, file, design, impl, results, ignored]);
+    if (hydrated) save("session", { mode, file, design, impl, results, ignored, origin, url, sizes, projectId, shots, activeShot });
+  }, [hydrated, mode, file, design, impl, results, ignored, origin, url, sizes, projectId, shots, activeShot]);
+
+  const loadProjects = useCallback(() => {
+    getProjects().then((p) => { setProjects(p); setProjectsError(null); })
+      .catch((e) => { setProjects((p) => p ?? []); setProjectsError(`No se pudieron cargar los proyectos: ${e.message}`); });
+  }, []);
+  useEffect(() => { if (user) loadProjects(); }, [user, loadProjects]);
+  // al volver a la lista, refresca (puede haber análisis nuevos)
+  const onProjectList = route[0] === "proyectos" && !route[1];
+  useEffect(() => { if (user && onProjectList) loadProjects(); }, [user, onProjectList, loadProjects]);
 
   // Cambiar una imagen invalida el resultado anterior de esa pestaña
   const clearResult = (m) => {
@@ -179,7 +209,7 @@ export default function App() {
     setIgnored((i) => ({ ...i, [m]: [] }));
     setSelected(null);
   };
-  const setFile = useCallback((f) => { setFileRaw(f); clearResult("analyze"); }, []);
+  const setFile = useCallback((f) => { setFileRaw(f); setShots([]); clearResult("analyze"); }, []);
   const setDesign = useCallback((f) => { setDesignRaw(f); clearResult("compare"); }, []);
   const setImpl = useCallback((f) => { setImplRaw(f); clearResult("compare"); }, []);
 
@@ -199,7 +229,7 @@ export default function App() {
     return () => window.removeEventListener("paste", onPaste);
   }, [mode, design, setFile, setDesign, setImpl]);
 
-  const ready = mode === "analyze" ? file : design && impl;
+  const ready = mode === "analyze" ? (origin === "url" ? url.trim() && sizes.length : file) : design && impl;
   const names = mode === "analyze" ? [file?.name || "captura"] : [design?.name || "diseño", impl?.name || "implementación"];
 
   // Qwen explica los hallazgos y opina si son falsos positivos. Va por lotes y en segundo plano:
@@ -228,6 +258,8 @@ export default function App() {
           if (missing) { failed += missing; lastError = "Qwen no alcanzó a terminar su respuesta"; }
           setResults((r) => (r.analyze?.elapsed_ms === data.elapsed_ms
             ? { ...r, analyze: { ...r.analyze, qwen: { ...acc } } } : r));
+          setShots((list) => list.map((x) => (x.result.analysis_id === data.analysis_id
+            ? { ...x, result: { ...x.result, qwen: { ...acc } } } : x)));
           break;
         } catch (e) {
           if (qwenRun.current !== myRun || ctrl.signal.aborted) return;
@@ -249,7 +281,70 @@ export default function App() {
     }
   };
 
+  // Guarda en MySQL (y en el historial de este navegador). Si falla, el análisis igual se ve.
+  const remember = async (m, entryNames, data, files, extra = {}) => {
+    let entry = { id: Date.now(), date: new Date().toISOString(), mode: m, names: entryNames, files, result: data, ...extra };
+    try {
+      const saved = await saveHistory({
+        mode: m, names: entryNames, result: data, project_id: projectId ? Number(projectId) : null, ...extra,
+      });
+      entry = { ...entry, id: saved.id, date: saved.date };
+    } catch (e) {
+      setError(`El análisis terminó, pero no se guardó en MySQL: ${e.message}`);
+    }
+    setHistory((h) => {
+      const next = [entry, ...h].slice(0, HISTORY_MAX);
+      save("history", next);
+      return next;
+    });
+    return entry;
+  };
+
+  const showShot = (list, i) => {
+    stopQwen();
+    setActiveShot(i);
+    setFileRaw(list[i].file);
+    setResults((r) => ({ ...r, analyze: list[i].result }));
+    setIgnored((ig) => ({ ...ig, analyze: [] }));
+    setSelected(null);
+  };
+
+  // Desde una URL: captura cada tamaño, lo analiza y lo guarda. Se ve el primero en cuanto está listo.
+  const runUrl = async () => {
+    setLoading(true);
+    setError(null);
+    setSelected(null);
+    stopQwen();
+    try {
+      setProgress(`Abriendo la página en ${sizes.length} ${sizes.length === 1 ? "tamaño" : "tamaños"}…`);
+      const cap = await captureUrl(url, SIZES.map(([k]) => k).filter((k) => sizes.includes(k)));
+      setUrl(cap.url);
+      const list = [];
+      for (const [i, shot] of cap.shots.entries()) {
+        setProgress(`Analizando ${shot.label.toLowerCase()} (${i + 1} de ${cap.shots.length})…`);
+        const data = await analyzeImage(shot.file);
+        const entry = await remember("analyze", [shot.file.name], data, { file: shot.file },
+          { viewport: shot.size, source_url: cap.url });
+        list.push({ size: shot.size, label: shot.label, truncated: shot.truncated, file: shot.file, result: data, historyId: entry.id });
+        setShots([...list]);
+        if (i === 0) {
+          showShot(list, 0);
+          requestAnimationFrame(() => mainRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+        }
+      }
+      if (projectId) loadProjects();
+      const first = list[0];
+      if (qwenOn && first?.result.findings.some((f) => f.verdict !== "descartado")) runQwen(first.file, first.result, first.historyId);
+    } catch (e) {
+      setError(e.message === "Failed to fetch" ? "No se pudo conectar con el backend. ¿Está corriendo uvicorn en el puerto 8000?" : e.message);
+    } finally {
+      setLoading(false);
+      setProgress(null);
+    }
+  };
+
   const run = async () => {
+    if (mode === "analyze" && origin === "url") return runUrl();
     setLoading(true);
     setError(null);
     setSelected(null);
@@ -259,21 +354,9 @@ export default function App() {
       if (m === "analyze") stopQwen();
       setResults((r) => ({ ...r, [m]: data }));
       setIgnored((i) => ({ ...i, [m]: [] }));
-      let entry = {
-        id: Date.now(), date: new Date().toISOString(), mode: m, names,
-        files: m === "analyze" ? { file } : { design, impl }, result: data,
-      };
-      try {
-        const saved = await saveHistory({ mode: m, names, result: data });
-        entry = { ...entry, id: saved.id, date: saved.date };
-      } catch (e) {
-        setError(`El análisis terminó, pero no se guardó en MySQL: ${e.message}`);
-      }
-      setHistory((h) => {
-        const next = [entry, ...h].slice(0, HISTORY_MAX);
-        save("history", next);
-        return next;
-      });
+      if (m === "analyze") setShots([]);
+      const entry = await remember(m, names, data, m === "analyze" ? { file } : { design, impl });
+      if (projectId) loadProjects();
       requestAnimationFrame(() => mainRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
       if (m === "analyze" && qwenOn && data.findings.some((f) => f.verdict !== "descartado")) runQwen(file, data, entry.id);
     } catch (e) {
@@ -285,7 +368,7 @@ export default function App() {
   };
 
   const restore = (h) => {
-    if (h.mode === "analyze") stopQwen();
+    if (h.mode === "analyze") { stopQwen(); setShots([]); }
     setMode(h.mode);
     if (h.mode === "analyze") setFileRaw(h.files.file);
     else { setDesignRaw(h.files.design); setImplRaw(h.files.impl); }
@@ -293,6 +376,24 @@ export default function App() {
     setIgnored((i) => ({ ...i, [h.mode]: [] }));
     setSelected(null);
     setShowHistory(false);
+  };
+
+  // "Abrir" una versión desde un proyecto: la carga en la página de revisión
+  const openVersion = async (id) => {
+    try {
+      restore(await getHistoryEntry(id));
+    } catch (e) {
+      setError(e.message);
+    }
+    go("revisar");
+  };
+  // "Analizar ahora" desde un proyecto: deja todo listo en la página de revisión
+  const analyzeProject = (p) => {
+    setMode("analyze");
+    setProjectId(String(p.id));
+    if (p.url) { setOrigin("url"); setUrl(p.url); } else setOrigin("file");
+    setError(null);
+    go("revisar");
   };
 
   const clearStoredHistory = async () => {
@@ -333,42 +434,78 @@ export default function App() {
     getHistory().then(setHistory).catch((e) => setError(e.message));
   }} />;
 
-  return (
-    <div className="app">
-      <header className="topbar">
-        <div className="brand"><Logo /> Lynx</div>
-        <div className="topbar-right">
-          <StatusPill status={status} />
-          <span className="muted">{user.email}</span>
-          <button type="button" className="btn ghost" onClick={async () => {
-            try { await logout(); } finally { localStorage.removeItem("qa-token"); setUser(null); }
-          }}>Salir</button>
-          <button type="button" className="btn outline" onClick={() => setShowHistory(true)}>
-            <History /> Historial
-          </button>
-        </div>
-      </header>
+  const page = route[0] === "proyectos" ? "proyectos" : "revisar";
+  const toggleSize = (k) => setSizes((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k]));
+  const projectName = projects?.find((p) => String(p.id) === String(projectId))?.name;
 
+  let content;
+  if (page === "proyectos" && route[2] === "comparar" && route[3] && route[4]) {
+    content = <VersionCompare projectId={route[1]} a={route[3]} b={route[4]} />;
+  } else if (page === "proyectos" && route[1]) {
+    content = (
+      <ProjectDetail id={route[1]} onAnalyze={analyzeProject} onOpenVersion={openVersion}
+        onDeleted={(id) => { setProjects((ps) => ps?.filter((p) => p.id !== id)); if (String(projectId) === String(id)) setProjectId(""); }} />
+    );
+  } else if (page === "proyectos") {
+    content = <ProjectsPage projects={projects} error={projectsError} onCreated={(p) => setProjects((ps) => [p, ...(ps ?? [])])} />;
+  } else {
+    content = (
       <main className="page">
         <div className="hero">
           <h1>Revisa tu interfaz</h1>
           <p className="muted">
-            {mode === "analyze"
-              ? "Sube una captura y encuentra los micro-detalles que no se ven a simple vista."
-              : "Compara tu implementación con el diseño y descubre diferencias visuales."}
+            {mode === "compare"
+              ? "Compara tu implementación con el diseño y descubre diferencias visuales."
+              : origin === "url"
+                ? "Pega la dirección de tu página: la revisamos en móvil, tablet y escritorio."
+                : "Sube una captura y encuentra los micro-detalles que no se ven a simple vista."}
           </p>
         </div>
 
-        <div className="tabs" role="tablist">
-          <button type="button" role="tab" aria-selected={mode === "analyze"} className={mode === "analyze" ? "active" : ""}
-            onClick={() => switchMode("analyze")}><Camera /> Revisar captura</button>
-          <button type="button" role="tab" aria-selected={mode === "compare"} className={mode === "compare" ? "active" : ""}
-            onClick={() => switchMode("compare")}><Compare /> Comparar diseños</button>
+        <div className="tabs-row">
+          <div className="tabs" role="tablist">
+            <button type="button" role="tab" aria-selected={mode === "analyze"} className={mode === "analyze" ? "active" : ""}
+              onClick={() => switchMode("analyze")}><Camera /> Revisar página</button>
+            <button type="button" role="tab" aria-selected={mode === "compare"} className={mode === "compare" ? "active" : ""}
+              onClick={() => switchMode("compare")}><Compare /> Comparar diseños</button>
+          </div>
+          <label className="save-to">
+            <span>Guardar en</span>
+            <select value={projectId} onChange={(e) => {
+              if (e.target.value === "__new") { go("proyectos"); return; }
+              setProjectId(e.target.value);
+            }}>
+              <option value="">Sin proyecto</option>
+              {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              <option value="__new">+ Nuevo proyecto…</option>
+            </select>
+          </label>
         </div>
 
         <section className="card filebar">
           {mode === "analyze" ? (
-            <FileSlot label="Captura de tu página" file={file} onFile={setFile} onClear={() => setFile(null)} />
+            <div className="source">
+              <div className="segmented small" role="radiogroup" aria-label="Qué revisar">
+                <button type="button" role="radio" aria-checked={origin === "file"} className={origin === "file" ? "active" : ""}
+                  onClick={() => setOrigin("file")}>Subir captura</button>
+                <button type="button" role="radio" aria-checked={origin === "url"} className={origin === "url" ? "active" : ""}
+                  onClick={() => setOrigin("url")}>Desde una URL</button>
+              </div>
+              {origin === "file" ? (
+                <FileSlot label="Captura de tu página" file={file} onFile={setFile} onClear={() => setFile(null)} />
+              ) : (
+                <div className="url-input">
+                  <input type="url" inputMode="url" placeholder="https://misitio.com" value={url} aria-label="Dirección de la página"
+                    onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ready && !loading && run()} />
+                  <div className="size-chips" role="group" aria-label="Tamaños de pantalla">
+                    {SIZES.map(([k, label, px]) => (
+                      <button key={k} type="button" aria-pressed={sizes.includes(k)} className={`chip ${sizes.includes(k) ? "active" : ""}`}
+                        onClick={() => toggleSize(k)}>{label} <small>{px}</small></button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           ) : (
             <>
               <FileSlot label="Diseño de referencia" file={design} onFile={setDesign} onClear={() => setDesign(null)}
@@ -409,6 +546,24 @@ export default function App() {
         {error && <p className="error" role="alert">{error}</p>}
 
         <div ref={mainRef} className="results-anchor">
+          {mode === "analyze" && shots.length > 0 && (
+            <div className="shot-bar" role="tablist" aria-label="Tamaño de pantalla">
+              {shots.map((sh, i) => (
+                <button key={sh.size} type="button" role="tab" aria-selected={i === activeShot}
+                  className={`shot ${i === activeShot ? "active" : ""}`} onClick={() => showShot(shots, i)}>
+                  <span>{sh.label}</span>
+                  <b className={sh.result.score >= 85 ? "good" : sh.result.score >= 60 ? "warn" : "bad"}>{sh.result.score}</b>
+                </button>
+              ))}
+              {loading && progress && <span className="shot-progress"><span className="spinner" /> {progress}</span>}
+              {projectName && !loading && (
+                <a className="link shot-project" href={`#/proyectos/${projectId}`}>Guardado en «{projectName}» →</a>
+              )}
+            </div>
+          )}
+          {mode === "analyze" && shots[activeShot]?.truncated && (
+            <p className="notice">La página es muy larga: se revisaron los primeros 4000 px.</p>
+          )}
           {result ? (
             <div className="workspace enter">
               <Viewer key={`${mode}-${result.elapsed_ms}-${result.size.join("x")}`} mode={mode} result={result}
@@ -432,7 +587,7 @@ export default function App() {
                     <span className="sk sk-title" />
                     {[0, 1, 2, 3].map((i) => <span key={i} className="sk sk-row" style={{ "--i": i }} />)}
                   </div>
-                  <p className="sk-note">DINOv2 está revisando cada elemento…</p>
+                  <p className="sk-note">{progress ?? "DINOv2 está revisando cada elemento…"}</p>
                 </div>
               ) : mode === "analyze" ? (
                 <>
@@ -443,6 +598,7 @@ export default function App() {
                     <li><b>Consistencia (IA):</b> DINOv2 agrupa los componentes iguales (botones, tarjetas…) y encuentra el que no coincide.</li>
                     <li><b>Atención (IA):</b> qué zona llama la mirada y si tu botón principal destaca.</li>
                     <li><b>Explicación (Qwen):</b> explica cada hallazgo y te avisa cuál parece un falso positivo.</li>
+                    <li><b>Desde una URL:</b> revisa tu página en móvil, tablet y escritorio de una vez.</li>
                   </ul>
                 </>
               ) : (
@@ -460,9 +616,35 @@ export default function App() {
           )}
         </div>
       </main>
+    );
+  }
 
-      <HistoryDrawer open={showHistory} items={history} onClose={() => setShowHistory(false)} onRestore={restore}
-        onClear={clearStoredHistory} />
+  return (
+    <div className="app">
+      <header className="topbar">
+        <div className="topbar-left">
+          <a className="brand" href="#/revisar"><Logo /> Lynx</a>
+          <nav className="nav" aria-label="Secciones">
+            <a href="#/revisar" className={page === "revisar" ? "active" : ""} aria-current={page === "revisar" ? "page" : undefined}>Revisar</a>
+            <a href="#/proyectos" className={page === "proyectos" ? "active" : ""} aria-current={page === "proyectos" ? "page" : undefined}>Proyectos</a>
+          </nav>
+        </div>
+        <div className="topbar-right">
+          <StatusPill status={status} />
+          <button type="button" className="btn ghost" onClick={() => setShowHistory(true)}>
+            <History /> Historial
+          </button>
+          <span className="user-chip" title={user.email}>{user.email}</span>
+          <button type="button" className="btn ghost" onClick={async () => {
+            try { await logout(); } finally { localStorage.removeItem("qa-token"); setUser(null); }
+          }}>Salir</button>
+        </div>
+      </header>
+
+      {content}
+
+      <HistoryDrawer open={showHistory} items={history} onClose={() => setShowHistory(false)}
+        onRestore={(h) => { restore(h); go("revisar"); }} onClear={clearStoredHistory} />
     </div>
   );
 }
