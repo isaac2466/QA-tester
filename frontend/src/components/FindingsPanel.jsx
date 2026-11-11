@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CATEGORY, SEVERITY, countBy, scoreOf } from "../utils/findings.js";
 import { Check, Chevron, Download, EyeOff, Flag, Sparkles, Target } from "./icons.jsx";
+import Dropdown from "./Dropdown.jsx";
 
 function Score({ value }) {
   const tone = value >= 85 ? "good" : value >= 60 ? "warn" : "bad";
@@ -159,10 +160,16 @@ export default function FindingsPanel({
           </button>
         ))}
         {Object.keys(byCat).length > 1 && (
-          <select value={cat} onChange={(e) => setCat(e.target.value)} aria-label="Filtrar por categoría">
-            <option value="all">Categoría</option>
-            {Object.entries(byCat).map(([c, n]) => <option key={c} value={c}>{CATEGORY[c] ?? c} ({n})</option>)}
-          </select>
+          <Dropdown
+            label="Filtrar por categoría"
+            value={cat}
+            options={[
+              { value: "all", label: "Categoría" },
+              ...Object.entries(byCat).map(([c, n]) => ({ value: c, label: `${CATEGORY[c] ?? c} (${n})` })),
+            ]}
+            onChange={setCat}
+            className="category-select"
+          />
         )}
       </div>
 
