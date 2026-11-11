@@ -135,8 +135,37 @@ svg { flex: none; }
 .segmented button + button { border-left: 1px solid var(--border-strong); }
 .segmented button:hover:not(.active) { background: var(--surface-2); }
 .segmented button.active { background: var(--primary); color: #fff; }
-.zoom { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border-strong); border-radius: 8px; padding: 0 4px 0 10px; }
-.zoom select { border: 0; background: none; padding: 7px 4px; font-size: 14px; cursor: pointer; }
+.zoom {
+  display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border-strong);
+  border-radius: 8px; padding: 0 4px 0 10px; transition: background .15s, border-color .15s, color .15s;
+}
+.zoom:hover, .zoom:focus-within { background: var(--primary-hover); border-color: var(--primary-hover); color: #fff; }
+.custom-select { position: relative; }
+.select-trigger {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
+  border: 0; border-radius: 6px; background: #e2ffff; color: var(--text); padding: 5px 8px;
+  font: inherit; text-align: left; cursor: pointer;
+}
+.select-chevron { font-size: 12px; transition: transform .15s; }
+.select-chevron.open { transform: rotate(180deg); }
+.select-menu {
+  position: fixed; z-index: 60; width: max-content;
+  max-height: 240px; overflow-y: auto; padding: 4px; border: 1px solid var(--border-strong);
+  border-radius: 8px; background: #e2ffff; box-shadow: var(--shadow);
+}
+.select-option {
+  padding: 6px 10px; border-radius: 5px; background: #e2ffff; color: var(--text); cursor: pointer;
+  white-space: nowrap; transition: background .12s, color .12s;
+}
+.select-option[aria-selected="true"] { background: var(--primary); color: #fff; }
+.select-option:hover,
+.select-option:focus-visible { background: var(--primary-hover); color: #fff; outline: none; }
+.zoom-select .select-trigger { padding: 7px 4px; font-size: 14px; background: transparent; color: inherit; }
+.zoom-select .select-trigger:hover { background: transparent; border-color: transparent; color: inherit; }
+.category-select { width: 84px; min-width: 0; flex: 0 1 84px; margin-left: auto; font-size: 12px; }
+.category-select .select-trigger { padding: 3px 4px; font-size: 12px; overflow: hidden; }
+.category-select .select-trigger { white-space: nowrap; }
+.category-select .select-trigger:not(:hover) { text-overflow: ellipsis; }
 
 .canvas-scroll {
   max-height: calc(100vh - 220px); min-height: 300px; overflow: auto;
@@ -228,7 +257,6 @@ svg { flex: none; }
 .chip.dot-alta { --c: var(--alta); }
 .chip.dot-media { --c: var(--media); }
 .chip.dot-baja { --c: var(--baja); }
-.filters select { border: 1px solid var(--border-strong); border-radius: 8px; padding: 5px 8px; font-size: 14px; background: var(--surface); }
 
 .list { list-style: none; margin: 0; padding: 0 2px 2px 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; min-height: 0; flex: 1; }
 .item { border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: var(--surface); transition: border-color .15s, background .15s; }
@@ -345,7 +373,6 @@ svg { flex: none; }
 .filters { gap: 4px; flex-wrap: nowrap; min-width: 0; overflow-x: auto; scrollbar-width: none; padding: 1px; }
 .chip { padding: 2px 8px; font-size: 12px; gap: 5px; flex: none; }
 .chip .count { font-size: 11px; padding: 0 5px; }
-.filters select { margin-left: auto; padding: 3px 4px; font-size: 12px; width: 84px; min-width: 0; flex: 0 1 84px; }
 @media (max-width: 400px) { .filters { flex-wrap: wrap; } }
 
 /* Lista: tarjetas compactas; el detalle y las acciones sólo al abrir */
@@ -450,13 +477,13 @@ svg { flex: none; }
 .explain-steps dt { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 .explain-steps dd { margin: 2px 0 0; color: var(--text); }
 
-:root button:not(.box):not(:disabled):hover {
+:root button:not(.box):not(.item-main):not(:disabled):hover {
   background-color: var(--primary-hover);
   border-color: var(--primary-hover);
   color: #fff;
 }
+.item-main:hover { background-color: #d7f4f4; }
 .chip:hover:not(:disabled) .count { background: rgba(255, 255, 255, .2); }
-.item-main:hover .cat,
 .drawer li button:hover small,
 .slot.empty:hover small { color: rgba(255, 255, 255, .85); }
 .explain-fix { padding: 10px 12px; border-radius: 8px; background: var(--primary-soft); border-left: 3px solid var(--primary); }

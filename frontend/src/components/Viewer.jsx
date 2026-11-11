@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Columns, Diff, Eye, Layers, Sparkles, Target, Wand, Zoom } from "./icons.jsx";
+import Dropdown from "./Dropdown.jsx";
 
 const VIEWS = {
   analyze: [
@@ -174,13 +175,16 @@ export default function Viewer({ mode, result, sourceUrl, findings, selected, ho
               </button>
             ))}
           </div>
-          <label className="zoom">
+          <div className="zoom">
             <Zoom size={16} />
-            <select value={zoom} onChange={(e) => setZoom(e.target.value === "fit" ? "fit" : Number(e.target.value))}
-              aria-label="Zoom">
-              {ZOOMS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
-          </label>
+            <Dropdown
+              label="Zoom"
+              value={zoom}
+              options={ZOOMS.map(([value, label]) => ({ value, label }))}
+              onChange={setZoom}
+              className="zoom-select"
+            />
+          </div>
         </div>
       </header>
       <div className="canvas-scroll" ref={scroller} onClick={() => onSelect(null)}>
