@@ -194,7 +194,7 @@ def check_contrast(rgb: np.ndarray, elems: list[Element]) -> list[Finding]:
         dist = np.linalg.norm(crop - bg, axis=1)
         if dist.max() < 10:
             continue
-        fg = np.median(crop[dist >= np.percentile(dist, 90)], axis=0)
+        fg = np.median(crop[dist >= np.percentile(dist, 98)], axis=0)  # el 2% más alejado del fondo: el centro de las letras
         ratio = contrast_ratio(fg, bg)
         large = e.h >= 24  # aprox. ≥18pt
         need = 3.0 if large else 4.5

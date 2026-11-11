@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Camera, Close, Compare } from "./icons.jsx";
 
 export default function HistoryDrawer({ open, items, onClose, onRestore, onClear }) {
@@ -9,9 +9,17 @@ export default function HistoryDrawer({ open, items, onClose, onRestore, onClear
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
+  // se queda montado un momento al cerrar para que se vea la animación de salida
+  const [shown, setShown] = useState(open);
+  useEffect(() => {
+    if (open) return setShown(true);
+    const t = setTimeout(() => setShown(false), 220);
+    return () => clearTimeout(t);
+  }, [open]);
+
+  if (!shown) return null;
   return (
-    <div className="drawer-backdrop" onClick={onClose}>
+    <div className={`drawer-backdrop ${open ? "" : "leaving"}`} onClick={onClose}>
       <aside className="drawer" role="dialog" aria-label="Historial" onClick={(e) => e.stopPropagation()}>
         <header>
           <h2>Historial</h2>

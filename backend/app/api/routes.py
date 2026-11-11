@@ -22,7 +22,7 @@ from app.services import dino, sam, vlm
 from app.services.attention import check_attention
 from app.services.colors import check_colors, check_contrast
 from app.services.compare import compare
-from app.services.components import check_components
+from app.services.components import check_button_styles, check_components
 from app.services.findings import score
 from app.services.fixes import apply_fixes
 from app.services.layout import check_alignment, check_centering, check_spacing, detect_elements
@@ -104,7 +104,11 @@ def _strict(findings, group_of):
     - Lo demás (espaciado, tonos casi iguales, casi centrado) → descartado, visible en "ver por qué".
     """
     for f in findings:
-        if f.verdict == "descartado" or f.source == "dinov2" or f.category == "contraste":
+        if f.category == "atencion" and f.verdict != "descartado":
+            f.verdict = "descartado"
+            f.verdict_reason = "Es una guía para landing pages, no un error. Consúltala en la vista «Atención (IA)»."
+            continue
+        if f.verdict == "descartado" or f.source == "dinov2" or f.category in ("contraste", "sistema")                 or f.title.startswith("Demasiados colores"):
             continue
         if f.category == "alineacion" and f.box and f.ref_box:
             ga, gb = group_of.get(tuple(f.box)), group_of.get(tuple(f.ref_box))
@@ -247,8 +251,10 @@ async def analyze(file: UploadFile = File(...), estricto: bool = True):
         # detector ENTRENADO (si existe app/ai/weights/detector.pt): suma lo que el clásico no encontró
         learned = trained_elements(dino.get(), rgb)
         if learned:
-            from app.services.layout import _dedupe
-            elems = _dedupe(elems + learned)
+            # sólo rellena huecos: si ya hay un elemento ahí (aunque la caja difiera unos px), manda el clásico
+            from app.services.layout import _iou
+            learned = [e for e in learned if all(_iou(e, o) < 0.3 for o in elems)]
+            elems = elems + learned
         findings = []
         findings += check_alignment(elems)
         findings += check_centering(elems, rgb.shape[1])
@@ -256,6 +262,7 @@ async def analyze(file: UploadFile = File(...), estricto: bool = True):
         color_findings, pal = check_colors(rgb)
         findings += color_findings
         findings += check_contrast(rgb, elems)
+        findings += check_button_styles(rgb, elems)
 
         attention, heat, groups, comps = None, None, [], None
         group_of: dict = {}

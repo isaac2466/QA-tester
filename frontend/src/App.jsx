@@ -37,45 +37,37 @@ function AuthScreen({ onAuthenticated }) {
     }
   };
 
+  const isLogin = mode === "login";
   return (
     <main className="auth-page">
-      <section className="auth-card">
-        <div className="auth-avatar" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="8" r="3.5" />
-            <path d="M5 20c.6-3.5 3.1-5.5 7-5.5s6.4 2 7 5.5" />
-          </svg>
+      <section className="auth-card proof" aria-labelledby="auth-title">
+        <div className="brand auth-brand"><Logo /> Lynx</div>
+        <div className="auth-heading">
+          <h1 id="auth-title">{isLogin ? "Entra a tu cuenta" : "Crea tu cuenta"}</h1>
+          <p className="muted">{isLogin ? "Tus análisis e historial te esperan." : "Guarda tus análisis y enséñale a la IA qué es un error."}</p>
         </div>
-        <div className="auth-content">
-          <div className="auth-heading">
-            <h1>{mode === "login" ? "Iniciar sesión" : "Crear cuenta"}</h1>
-            <p className="muted">Accede a tus análisis e historial</p>
-          </div>
-          <form className="auth-form" onSubmit={submit}>
-            <label className="auth-field">
-              <span className="auth-field-icon" aria-hidden="true">@</span>
-              <span className="sr-only">Correo electrónico</span>
-              <input type="email" placeholder="Correo electrónico" value={email}
-                onChange={(e) => setEmail(e.target.value)} required />
-            </label>
-            <label className="auth-field">
-              <span className="auth-field-icon" aria-hidden="true">●</span>
-              <span className="sr-only">Contraseña</span>
-              <input type="password" placeholder="Contraseña" value={password}
-                onChange={(e) => setPassword(e.target.value)} minLength={8} required />
-            </label>
-            {error && <p className="error" role="alert">{error}</p>}
-            <button type="submit" className="btn primary auth-submit" disabled={loading}>
-              {loading ? "Guardando…" : mode === "login" ? "Entrar" : "Registrarme"}
-            </button>
-          </form>
-          <button type="button" className="auth-switch" onClick={() => {
-            setMode(mode === "login" ? "register" : "login");
-            setError(null);
-          }}>
-            {mode === "login" ? "Crear una cuenta" : "Ya tengo una cuenta"}
+        <form className="auth-form" onSubmit={submit}>
+          <label className="auth-field">
+            <span>Correo</span>
+            <input type="email" autoComplete="email" placeholder="tu@correo.com" value={email}
+              onChange={(e) => setEmail(e.target.value)} required />
+          </label>
+          <label className="auth-field">
+            <span>Contraseña</span>
+            <input type="password" autoComplete={isLogin ? "current-password" : "new-password"} placeholder="Mínimo 8 caracteres"
+              value={password} onChange={(e) => setPassword(e.target.value)} minLength={8} required />
+          </label>
+          {error && <p className="error" role="alert">{error}</p>}
+          <button type="submit" className="btn primary lg auth-submit" disabled={loading}>
+            {loading ? <><span className="spinner" /> {isLogin ? "Entrando…" : "Creando cuenta…"}</> : isLogin ? "Entrar" : "Crear cuenta"}
           </button>
-        </div>
+        </form>
+        <p className="auth-switch">
+          {isLogin ? "¿Primera vez aquí?" : "¿Ya tienes cuenta?"}{" "}
+          <button type="button" className="link" onClick={() => { setMode(isLogin ? "register" : "login"); setError(null); }}>
+            {isLogin ? "Crea una cuenta" : "Entra"}
+          </button>
+        </p>
       </section>
     </main>
   );
@@ -418,7 +410,7 @@ export default function App() {
 
         <div ref={mainRef} className="results-anchor">
           {result ? (
-            <div className="workspace">
+            <div className="workspace enter">
               <Viewer key={`${mode}-${result.elapsed_ms}-${result.size.join("x")}`} mode={mode} result={result}
                 sourceUrl={source?.url} findings={visible} selected={selected} hovered={hovered}
                 onSelect={setSelected} focusTick={focusTick} />
@@ -432,9 +424,16 @@ export default function App() {
                 onExport={() => exportReport({ mode, result, findings: visible, names })} />
             </div>
           ) : (
-            <section className="card empty-state">
+            <section className={`card empty-state ${loading ? "is-loading" : ""}`}>
               {loading ? (
-                <><span className="spinner big" /><p>Analizando con DINOv2… la primera vez puede tardar unos segundos.</p></>
+                <div className="skeleton-ws" role="status" aria-label="Analizando la captura">
+                  <div className="sk-viewer"><span className="sk sk-bar" /><span className="sk sk-canvas" /></div>
+                  <div className="sk-panel">
+                    <span className="sk sk-title" />
+                    {[0, 1, 2, 3].map((i) => <span key={i} className="sk sk-row" style={{ "--i": i }} />)}
+                  </div>
+                  <p className="sk-note">DINOv2 está revisando cada elemento…</p>
+                </div>
               ) : mode === "analyze" ? (
                 <>
                   <h2>¿Qué revisa?</h2>
@@ -460,8 +459,6 @@ export default function App() {
             </section>
           )}
         </div>
-
-        <p className="footnote"><Info size={16} /> Las diferencias señaladas requieren revisión humana.</p>
       </main>
 
       <HistoryDrawer open={showHistory} items={history} onClose={() => setShowHistory(false)} onRestore={restore}

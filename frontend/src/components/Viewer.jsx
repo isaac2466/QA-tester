@@ -48,6 +48,7 @@ function Boxes({ findings, size, selected, hovered, onSelect }) {
         return (
         <button
           key={f.id}
+          data-i={Math.min(all.indexOf(f), 12)}
           type="button"
           data-box={f.id}
           className={`box sev-${f.severity} ${f.id === selected ? "selected" : ""} ${f.id === hovered ? "hovered" : ""}`}

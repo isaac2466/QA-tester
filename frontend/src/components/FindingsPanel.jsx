@@ -167,12 +167,12 @@ export default function FindingsPanel({
       </div>
 
       <ol className="list">
-        {shown.map((f) => {
+        {shown.map((f, idx) => {
           const open = f.id === selected;
           const q = explanations[f.id];
           const [vClass, vLabel, vTip] = (q && VERDICT[q.veredicto]) || [];
           return (
-            <li key={f.id} className={`item sev-${f.severity} ${open ? "open" : ""} ${vClass === "fp" ? "is-fp" : ""}`}
+            <li key={f.id} style={{ "--i": Math.min(idx, 12) }} className={`item sev-${f.severity} ${open ? "open" : ""} ${vClass === "fp" ? "is-fp" : ""}`}
               onMouseEnter={() => onHover(f.id)} onMouseLeave={() => onHover(null)}>
               <button type="button" className="item-main" onClick={() => onSelect(open ? null : f.id)} aria-expanded={open}>
                 <span className="num">{f.id}</span>
@@ -261,12 +261,6 @@ export default function FindingsPanel({
             <button type="button" className="link" onClick={() => setShowDiscarded((v) => !v)} aria-expanded={showDiscarded}>
               {discarded.length} descartados por la IA · {showDiscarded ? "ocultar" : "ver"}
             </button>
-          )}
-          {learning && (
-            <span className="muted" title={learning.red_decide ? "La red neuronal ya decide con tus marcas"
-              : `La red neuronal decide a partir de ${learning.minimo_para_decidir ?? 30} marcas`}>
-              🧠 {learning.marcas}/{learning.red_decide ? learning.marcas : learning.minimo_para_decidir ?? 30} marcas
-            </span>
           )}
           {showDiscarded && (
             <ul>{discarded.map((f) => <li key={f.id}><b>{f.title}</b> — {f.verdict_reason}</li>)}</ul>

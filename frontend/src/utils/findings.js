@@ -5,6 +5,7 @@ export const CATEGORY = {
   contraste: "Contraste",
   atencion: "Atención",
   consistencia: "Consistencia",
+  sistema: "Sistema de diseño",
   diferencia: "Diferencia",
 };
 

@@ -155,6 +155,55 @@ def _color_findings(rgb: np.ndarray, members: list[Element], noun) -> list[Findi
     return out
 
 
+def _row_offsets(members, noun) -> list[Finding]:
+    """Hermanos en la misma fila que empiezan a distinta altura (p. ej. 3 tarjetas desfasadas 10-40px)."""
+    out = []
+    row = [m for m in members if abs(m.cy - members[0].cy) < 0.6 * max(m.h, members[0].h)]
+    if len(row) < 3:
+        return out
+    top = float(np.median([m.y for m in row]))
+    for m in row:
+        d = m.y - top
+        if 5 <= abs(d) <= 0.6 * m.h:
+            out.append(Finding(
+                category="alineacion", severity="media", source="dinov2",
+                title=f"{noun[0].capitalize()} a distinta altura ({abs(d):.0f}px)",
+                detail=f"DINOv2 agrupa {len(row)} {noun[1]} en la misma fila, pero este empieza {abs(d):.0f}px "
+                       f"{'más abajo' if d > 0 else 'más arriba'} que los demás.",
+                suggestion=f"Alinea su borde superior con el de sus hermanos (muévelo {abs(d):.0f}px hacia "
+                           f"{'arriba' if d > 0 else 'abajo'}) o usa align-items: start en el contenedor.",
+                box=m.box, fix={"type": "move", "box": m.box, "dx": 0, "dy": -round(d)},
+            ))
+    return out
+
+
+def check_button_styles(rgb: np.ndarray, elems: list[Element]) -> list[Finding]:
+    """Inventario de botones: cuántos estilos distintos (color + alto) hay en la página."""
+    from app.services.colors import _chroma_hue
+    btns = [e for e in elems if e.kind == "bloque" and 20 <= e.h <= 64 and 1.5 <= e.w / e.h <= 10
+            and _chroma_hue(_fill(rgb, e))[0] > 30]
+    styles: list[list] = []
+    for e in btns:
+        f = _fill(rgb, e)
+        for s in styles:
+            if delta_e(s[0], f) < 10 and abs(s[1] - e.h) <= 4:
+                s[2].append(e)
+                break
+        else:
+            styles.append([f, e.h, [e]])
+    if len(styles) <= 3:
+        return []
+    desc = ", ".join(f"{hex_of(f)} ({h}px de alto)" for f, h, _ in styles[:6])
+    return [Finding(
+        category="sistema", severity="media",
+        title=f"{len(styles)} estilos de botón distintos",
+        detail=f"Hay {len(btns)} botones con {len(styles)} combinaciones de color y tamaño: {desc}. "
+               f"Así ninguno se ve como la acción principal.",
+        suggestion="Define 2-3 estilos: uno primario (la acción principal, un solo color fuerte), uno secundario "
+                   "(contorno o color neutro) y, si hace falta, uno de texto. Usa el mismo alto para todos.",
+    )]
+
+
 def check_components(rgb: np.ndarray, elems: list[Element], dino) -> tuple[list[Finding], list[dict]]:
     H, W = rgb.shape[:2]
     cands = _candidates(elems, W, H)
@@ -176,7 +225,8 @@ def check_components(rgb: np.ndarray, elems: list[Element], dino) -> tuple[list[
                        "boxes": [e.box for e in members]})
         if len(members) < MIN_GROUP:
             continue
-        found = _size_findings(members, noun, "h")
+        found = _row_offsets(members, noun)
+        found += _size_findings(members, noun, "h")
         flagged = {tuple(f.box) for f in found}
         found += [f for f in _size_findings(members, noun, "w") if tuple(f.box) not in flagged]
         flagged |= {tuple(f.box) for f in found}
