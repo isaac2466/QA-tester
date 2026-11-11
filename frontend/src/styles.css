@@ -726,3 +726,113 @@ svg { flex: none; }
   .page-head { align-items: stretch; }
   .page-actions { justify-content: flex-end; }
 }
+
+/* ============================================================
+   Integración (Neto): mismos colores del equipo (turquesa + verde),
+   mejor jerarquía, login, skeletons y animaciones.
+   ============================================================ */
+:root {
+  /* turquesa del equipo en capas: fondo → tarjetas → rellenos */
+  --bg: #e2ffff;
+  --surface: #f7ffff;
+  --surface-2: #d4f5f5;
+  --border: #bfe6e6;
+  --border-strong: #9fd3d3;
+  /* verde del equipo coherente en todos sus estados (antes el hover era morado) */
+  --primary: #178750;
+  --primary-hover: #11663c;
+  --primary-soft: #dcf3e6;
+  --primary-line: #9fd6b8;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+  --fast: 140ms;
+  --mid: 260ms;
+}
+.card { box-shadow: 0 1px 2px rgba(10, 60, 60, .05); }
+.btn.primary:disabled { background: #8cc7a8; }
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* ---------- Login ---------- */
+.auth-card { padding: 40px 36px; display: flex; flex-direction: column; gap: 22px; background: var(--surface); animation: rise var(--mid) var(--ease) both; }
+.auth-brand { font-size: 18px; }
+.auth-heading { margin: 0; text-align: left; display: flex; flex-direction: column; gap: 6px; }
+.auth-heading p { margin: 0; font-size: 14px; }
+.auth-form { gap: 16px; }
+.auth-field { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 0; border: 0; background: none; box-shadow: none; font-size: 14px; font-weight: 600; }
+.auth-field:focus-within { box-shadow: none; }
+.auth-field input {
+  min-height: 44px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 8px;
+  background: #fff; font-weight: 400; transition: border-color var(--fast), box-shadow var(--fast);
+}
+.auth-field input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+.auth-switch { font-size: 14px; color: var(--muted); text-align: center; }
+.auth-switch:hover { text-decoration: none; color: var(--muted); }
+
+/* marcas de registro alrededor del login (como una hoja de prueba) */
+.proof {
+  --mark: var(--primary);
+  background-image:
+    linear-gradient(var(--mark), var(--mark)), linear-gradient(var(--mark), var(--mark)),
+    linear-gradient(var(--mark), var(--mark)), linear-gradient(var(--mark), var(--mark)),
+    linear-gradient(var(--mark), var(--mark)), linear-gradient(var(--mark), var(--mark)),
+    linear-gradient(var(--mark), var(--mark)), linear-gradient(var(--mark), var(--mark));
+  background-size: 14px 2px, 2px 14px, 14px 2px, 2px 14px, 14px 2px, 2px 14px, 14px 2px, 2px 14px;
+  background-position: 0 0, 0 0, 100% 0, 100% 0, 0 100%, 0 100%, 100% 100%, 100% 100%;
+  background-repeat: no-repeat;
+}
+
+/* ---------- Animaciones ---------- */
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pop { from { opacity: 0; transform: scale(.92); } to { opacity: 1; transform: none; } }
+@keyframes slide-in { from { transform: translateX(100%); } to { transform: none; } }
+@keyframes slide-out { from { transform: none; } to { transform: translateX(100%); } }
+@keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+.hero { animation: rise var(--mid) var(--ease) both; }
+.filebar { animation: rise var(--mid) var(--ease) 60ms both; }
+.empty-state { animation: rise var(--mid) var(--ease) 120ms both; }
+.error { animation: rise var(--mid) var(--ease) both; }
+.workspace.enter > :first-child { animation: rise var(--mid) var(--ease) both; }
+.workspace.enter > :last-child { animation: rise var(--mid) var(--ease) 90ms both; }
+.btn { transition: background var(--fast), border-color var(--fast), color var(--fast), transform var(--fast); }
+.btn:active:not(:disabled) { transform: translateY(1px) scale(.99); }
+.thumb, .stage > img { animation: fade var(--mid) both; }
+.score { animation: pop var(--mid) var(--ease) both; }
+
+/* hallazgos en cascada y recuadros escalonados sobre la captura */
+.list .item { animation: rise var(--mid) var(--ease) both; animation-delay: calc(var(--i, 0) * 45ms); }
+.item-body { animation: rise var(--fast) var(--ease) both; }
+.box { animation: pop var(--mid) var(--ease) both; animation-delay: calc(var(--d, 0) * 40ms); }
+.box[data-i="1"] { --d: 1; } .box[data-i="2"] { --d: 2; } .box[data-i="3"] { --d: 3; } .box[data-i="4"] { --d: 4; }
+.box[data-i="5"] { --d: 5; } .box[data-i="6"] { --d: 6; } .box[data-i="7"] { --d: 7; } .box[data-i="8"] { --d: 8; }
+
+/* skeleton mientras analiza */
+.empty-state.is-loading { padding: 16px; border-style: dashed; }
+.skeleton-ws { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; width: 100%; }
+.sk-viewer, .sk-panel { display: flex; flex-direction: column; gap: 12px; }
+.sk {
+  display: block; border-radius: 8px;
+  background: linear-gradient(90deg, var(--surface-2) 25%, #eafcfc 50%, var(--surface-2) 75%) 0 0 / 200% 100%;
+  animation: shimmer 1.4s linear infinite, fade var(--mid) both;
+}
+.sk-bar { height: 34px; width: 55%; }
+.sk-canvas { height: min(52vh, 460px); }
+.sk-title { height: 28px; width: 60%; }
+.sk-row { height: 72px; animation-delay: 0s, calc(var(--i, 0) * 90ms); }
+.sk-note { grid-column: 1 / -1; font-size: 14px; color: var(--muted); }
+
+/* historial: entra y sale deslizándose */
+.drawer-backdrop { animation: fade var(--mid) both; }
+.drawer { overscroll-behavior: contain; animation: slide-in var(--mid) var(--ease) both; }
+.drawer-backdrop.leaving { animation: fade-out 200ms ease both; }
+.drawer-backdrop.leaving .drawer { animation: slide-out 200ms ease both; }
+.drawer li { animation: rise var(--mid) var(--ease) both; }
+
+@media (max-width: 1100px) { .skeleton-ws { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .auth-card { padding: 32px 22px; } }
+
+/* respeta "reducir movimiento" del sistema */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; animation-delay: 0ms !important; transition-duration: 1ms !important; }
+}
