@@ -28,21 +28,27 @@ class SamService:
         self.model = Sam2Model.from_pretrained(SAM_MODEL).to(self.device).eval()
         self._lock = threading.Lock()
 
-    def masks(self, rgb: np.ndarray, boxes: list[list[int]], batch: int = 64) -> list[np.ndarray]:
-        """Una máscara booleana (alto×ancho de la imagen) por cada caja [x, y, w, h]."""
+    def masks(self, rgb: np.ndarray, boxes: list[list[int]], batch: int = 8) -> list[np.ndarray]:
+        """Una máscara booleana (alto×ancho de la imagen) por cada caja [x, y, w, h].
+
+        La imagen se procesa UNA vez y las cajas se piden de 8 en 8: así el pico de memoria es chico
+        (con 8 GB de RAM, pedir 64 cajas de golpe a tamaño completo tumbaba el servidor).
+        """
         if not boxes:
             return []
         img = Image.fromarray(rgb)
+        chunk = [[x, y, x + w, y + h] for x, y, w, h in boxes]
+        inputs = self.processor(images=img, input_boxes=[chunk], return_tensors="pt").to(self.device)
         out: list[np.ndarray] = []
-        for i in range(0, len(boxes), batch):
-            chunk = [[x, y, x + w, y + h] for x, y, w, h in boxes[i:i + batch]]
-            inputs = self.processor(images=img, input_boxes=[chunk], return_tensors="pt").to(self.device)
-            with self._lock, torch.inference_mode():
-                pred = self.model(**inputs, multimask_output=False)
-            masks = self.processor.post_process_masks(pred.pred_masks.cpu(), inputs["original_sizes"].cpu())[0]
-            out += [m[0].numpy().astype(bool) for m in masks]  # [n_cajas, 1, H, W]
+        with self._lock, torch.inference_mode():
+            emb = self.model.get_image_embeddings(inputs["pixel_values"])
+            for i in range(0, len(boxes), batch):
+                pred = self.model(image_embeddings=emb, input_boxes=inputs["input_boxes"][:, i:i + batch],
+                                  multimask_output=False)
+                masks = self.processor.post_process_masks(pred.pred_masks.cpu(), inputs["original_sizes"].cpu())[0]
+                out += [m[0].numpy().astype(bool) for m in masks]
+                del pred, masks
         return out
-
 
 _service: SamService | None = None
 _load_error: str | None = None
@@ -69,7 +75,7 @@ def status() -> dict:
     return {"loaded": False, "model": SAM_MODEL, "error": _load_error}
 
 
-def refine_blocks(rgb: np.ndarray, elems: list, max_blocks: int = 40) -> int:
+def refine_blocks(rgb: np.ndarray, elems: list, max_blocks: int = 25) -> int:
     """SAM revisa la caja de cada bloque (botón, tarjeta) y la ajusta a la silueta real.
 
     Corrige cajas que juntan dos botones pegados o que cortan un botón a la mitad. Si la respuesta
