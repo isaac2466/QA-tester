@@ -267,6 +267,10 @@ async def analyze(file: UploadFile = File(...), estricto: bool = True):
             from app.services.layout import _iou
             learned = [e for e in learned if all(_iou(e, o) < 0.3 for o in elems)]
             elems = elems + learned
+        # SAM ajusta cada caja a la silueta real (botones pegados, botones cortados) antes de comparar
+        sam_refined = sam.refine_blocks(rgb, elems)
+        from app.services.layout import _dedupe
+        elems = _dedupe(elems)
         findings = []
         findings += check_alignment(elems)
         findings += check_centering(elems, rgb.shape[1])
@@ -307,7 +311,7 @@ async def analyze(file: UploadFile = File(...), estricto: bool = True):
             _strict(findings, group_of)
         dicts, annotated, aid = _pack(findings, rgb)
         try:  # dato de entrenamiento real: la captura + lo que encontró (las marcas se suman en feedback.jsonl)
-            real = feedback.FILE.parent / "real"
+            real = feedback.LOCAL / "real"  # capturas: sólo en esta PC (pesan mucho)
             real.mkdir(parents=True, exist_ok=True)
             img.save(real / f"{aid}.png")
             (real / f"{aid}.json").write_text(json.dumps(

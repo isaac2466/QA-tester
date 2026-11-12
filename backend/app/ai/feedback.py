@@ -25,8 +25,14 @@ import torch.nn as nn
 
 CATEGORIES = ["alineacion", "espaciado", "color", "contraste", "atencion", "consistencia", "diferencia"]
 
-FILE = Path(__file__).resolve().parents[2] / "ai_data" / "feedback.jsonl"
-NET_FILE = FILE.parent / "feedback_net.pt"
+import platform
+
+# Las marcas viajan con el proyecto (git): un archivo por computadora para que nadie pise a nadie.
+LEARNED = Path(__file__).parent / "learned"
+FILE = LEARNED / f"marcas_{platform.node().lower() or 'pc'}.jsonl"
+LEGACY = Path(__file__).resolve().parents[2] / "ai_data" / "feedback.jsonl"  # dónde se guardaban antes
+LOCAL = Path(__file__).resolve().parents[2] / "ai_data"                       # sólo de esta PC (no va a git)
+NET_FILE = LOCAL / "feedback_net.pt"
 SIMILAR = 0.97  # sólo descarta casi idénticos (con 0.92 confundía botones parecidos de otras páginas)
 MIN_MARKS_TO_DECIDE = 30  # con menos ejemplos la red memoriza en vez de aprender: no decide todavía
 RETRAIN_EVERY = 5
@@ -40,8 +46,10 @@ def _load():
     global _memory
     if _memory is None:
         _memory = []
-        if FILE.exists():
-            for line in FILE.read_text(encoding="utf-8").splitlines():
+        # se juntan las marcas de TODAS las computadoras del equipo (+ las de antes en esta PC)
+        files = sorted(LEARNED.glob("marcas_*.jsonl")) + ([LEGACY] if LEGACY.exists() else [])
+        for path in files:
+            for line in path.read_text(encoding="utf-8").splitlines():
                 try:
                     r = json.loads(line)
                     r["emb"] = np.asarray(r["emb"], dtype=np.float32)
@@ -51,7 +59,7 @@ def _load():
     return _memory
 
 
-CACHE_DIR = FILE.parent / "analisis"
+CACHE_DIR = LOCAL / "analisis"  # huellas de cada análisis: sólo en esta PC
 
 
 def _from_disk(analysis_id: str, finding_id: int):
@@ -171,6 +179,9 @@ def train_net(epochs=200) -> dict | None:
 def net_predict(emb, category) -> float | None:
     """Probabilidad (0-1) de que SÍ sea error según la red, o None si aún no hay red entrenada."""
     global _net
+    if _net is None and not NET_FILE.exists() and len(_load()) >= 6:
+        NET_FILE.parent.mkdir(parents=True, exist_ok=True)
+        train_net()
     if _net is None and NET_FILE.exists():
         ck = torch.load(NET_FILE, weights_only=False)
         _net = FeedbackNet(ck["dim"])

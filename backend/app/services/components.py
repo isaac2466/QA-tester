@@ -36,7 +36,8 @@ def _cluster(elems: list[Element], emb: np.ndarray) -> list[list[int]]:
     groups: list[list[int]] = []
     centroids: list[np.ndarray] = []
     for i in range(len(elems)):
-        best, best_sim = None, SIMILARITY
+        # en elementos chicos (enlaces, burbujas, etiquetas) DINOv2 ve poco detalle: se pide más parecido
+        best, best_sim = None, (SIMILARITY if elems[i].h >= 40 else 0.86)
         for g, (members, c) in enumerate(zip(groups, centroids)):
             sim = float(emb[i] @ c)
             if sim >= best_sim and _compatible(elems[i], elems[members[0]]):

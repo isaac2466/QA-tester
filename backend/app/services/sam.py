@@ -67,3 +67,36 @@ def status() -> dict:
     if _service:
         return {"loaded": True, "model": SAM_MODEL, "device": _service.device}
     return {"loaded": False, "model": SAM_MODEL, "error": _load_error}
+
+
+def refine_blocks(rgb: np.ndarray, elems: list, max_blocks: int = 40) -> int:
+    """SAM revisa la caja de cada bloque (botón, tarjeta) y la ajusta a la silueta real.
+
+    Corrige cajas que juntan dos botones pegados o que cortan un botón a la mitad. Si la respuesta
+    de SAM no es confiable (muy distinta a la caja original), se deja la caja como estaba.
+    Devuelve cuántas cajas se corrigieron.
+    """
+    if _service is None:
+        return 0
+    H, W = rgb.shape[:2]
+    blocks = [e for e in elems if e.kind == "bloque" and e.w * e.h < 0.25 * W * H][:max_blocks]
+    if not blocks:
+        return 0
+    masks = _service.masks(rgb, [e.box for e in blocks])
+    fixed = 0
+    for e, m in zip(blocks, masks):
+        x0, y0 = max(0, e.x - 6), max(0, e.y - 6)
+        x1, y1 = min(W, e.x + e.w + 6), min(H, e.y + e.h + 6)
+        sub = m[y0:y1, x0:x1]
+        ys, xs = np.nonzero(sub)
+        if len(xs) < 30:
+            continue
+        nx, ny = x0 + int(xs.min()), y0 + int(ys.min())
+        nw, nh = int(xs.max() - xs.min()) + 1, int(ys.max() - ys.min()) + 1
+        ratio = (nw * nh) / max(1, e.w * e.h)
+        # sólo cajas claramente mal hechas (≥4px de diferencia): las casi correctas se dejan como estaban,
+        # para no meter ruido de 1-2px en las medidas
+        if 0.45 <= ratio <= 1.25 and max(abs(nx - e.x), abs(ny - e.y), abs(nx + nw - e.x - e.w), abs(ny + nh - e.y - e.h)) >= 4:
+            e.x, e.y, e.w, e.h = nx, ny, nw, nh
+            fixed += 1
+    return fixed
