@@ -396,6 +396,7 @@ def review_page(rgb: np.ndarray, cancel: threading.Event | None = None) -> tuple
         raise RuntimeError("Qwen devolvió una respuesta incompleta; intenta de nuevo.")
     # Qwen lee bien pero compara mal: la comparación se hace aparte (reglas + Llama 3.2, sólo texto)
     textos = data.get("textos", "")
+    print(f"[Qwen leyó] {textos[:600]}", flush=True)
     found = list(data.get("contradicciones", []))
     extra = _text_rules(textos)  # Llama 3.2 no se carga: junto con Qwen no cabe en 8 GB
     seen = {_tidy(c.get("titulo"), 60).lower() for c in found}
