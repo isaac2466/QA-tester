@@ -45,11 +45,13 @@ function AuthScreen({ onAuthenticated }) {
   const isLogin = mode === "login";
   return (
     <main className="auth-page">
-      <section className="auth-card proof" aria-labelledby="auth-title">
-        <div className="brand auth-brand"><Logo /> Lynx</div>
-        <div className="auth-heading">
-          <h1 id="auth-title">{isLogin ? "Entra a tu cuenta" : "Crea tu cuenta"}</h1>
-          <p className="muted">{isLogin ? "Tus análisis e historial te esperan." : "Guarda tus análisis y enséñale a la IA qué es un error."}</p>
+      <div className="auth-brand"><Logo size={44} /></div>
+      <section className="auth-card">
+        <div className="auth-avatar" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="8" r="3.5" />
+            <path d="M5 20c.6-3.5 3.1-5.5 7-5.5s6.4 2 7 5.5" />
+          </svg>
         </div>
         <form className="auth-form" onSubmit={submit}>
           <label className="auth-field">
@@ -665,7 +667,7 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <div className="topbar-left">
-          <a className="brand" href="#/revisar"><Logo /> Lynx</a>
+          <a className="brand" href="#/revisar" aria-label="Lynx, ir a Revisar"><Logo /></a>
           <nav className="nav" aria-label="Secciones">
             <a href="#/revisar" className={page === "revisar" ? "active" : ""} aria-current={page === "revisar" ? "page" : undefined}>Revisar</a>
             <a href="#/proyectos" className={page === "proyectos" ? "active" : ""} aria-current={page === "proyectos" ? "page" : undefined}>Proyectos</a>

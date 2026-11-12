@@ -5,9 +5,9 @@ import Dropdown from "./Dropdown.jsx";
 const VIEWS = {
   analyze: [
     { key: "findings", label: "Hallazgos", icon: Target, boxes: true },
-    { key: "fixed", label: "Vista corregida", icon: Wand, needs: "fixed" },
-    { key: "heatmap", label: "Atención", icon: Eye, needs: "heatmap" },
-    { key: "components", label: "Vista de la IA", icon: Sparkles, needs: "components" },
+    { key: "fixed", label: "Vista corregida", icon: Wand }, // siempre visible: si no hay correcciones lo explica
+    { key: "heatmap", label: "Atención (IA)", icon: Eye, needs: "heatmap" },
+    { key: "components", label: "Componentes (IA)", icon: Sparkles, needs: "components" },
   ],
   compare: [
     { key: "side", label: "Lado a lado", icon: Columns, boxes: true },
@@ -137,7 +137,16 @@ export default function Viewer({ mode, result, sourceUrl, findings, selected, ho
   );
 
   let content;
-  if (view === "fixed") {
+  if (view === "fixed" && !result.images.fixed) {
+    content = (
+      <div className="no-fixes">
+        <Wand size={28} />
+        <p><b>No hay correcciones automáticas para esta captura.</b></p>
+        <p className="muted">La vista corregida mueve, alinea o recolorea elementos. Los hallazgos de esta captura
+          (por ejemplo, de atención o de la paleta) no se pueden arreglar moviendo píxeles: revisa su sugerencia en el panel.</p>
+      </div>
+    );
+  } else if (view === "fixed") {
     // izquierda = tu captura (antes); derecha = con las correcciones de DINOv2 + SAM (después)
     content = (
       <OverlayStage design={sourceUrl ?? result.images.annotated} impl={result.images.fixed} size={size} zoom={zoom}
@@ -191,7 +200,7 @@ export default function Viewer({ mode, result, sourceUrl, findings, selected, ho
       <div className="canvas-scroll" ref={scroller} onClick={() => onSelect(null)}>
         {content}
       </div>
-      {view === "fixed" && (
+      {view === "fixed" && result.images.fixed && (
         <p className="legend">Arrastra la barra: a la izquierda tu captura, a la derecha la misma captura con {result.fixes_applied?.length ?? 0} correcciones
           aplicadas. SAM recorta cada elemento con su silueta exacta para moverlo o ajustarlo sin parches. No es una imagen inventada: son tus píxeles corregidos.</p>
       )}

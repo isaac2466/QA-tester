@@ -55,9 +55,13 @@ export const Wand = (p) => (
   <Svg {...p}><path d="m15 4 5 5L8 21H3v-5z" /><path d="M12 7l5 5" /><path d="M19 2v3M17.5 3.5h3" /></Svg>
 );
 export const Check = (p) => <Svg {...p}><path d="m5 12 5 5L20 7" /></Svg>;
-export const Logo = ({ size = 30 }) => (
-  <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
-    <path d="M10 6 18 14 10 22 2 14z" fill="#7c3aed" />
-    <path d="M22 6 30 14 22 22 14 14z" fill="#a78bfa" opacity=".9" />
-  </svg>
+/** Logo LYNX: la palabra con el cursor sobre la X. */
+export const Logo = ({ size = 24 }) => (
+  <span className="wordmark" style={{ fontSize: size }} aria-label="Lynx">
+    LYN<span className="wordmark-x">X
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 3v15.5l4.2-3.9 2.7 6.2 2.6-1.1-2.7-6.1h5.7z" fill="currentColor" stroke="#030303" strokeWidth="1.6" strokeLinejoin="round" />
+      </svg>
+    </span>
+  </span>
 );

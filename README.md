@@ -7,6 +7,18 @@ Usa dos modelos de IA de Meta:
 - **DINOv2**: entiende la imagen y reconoce qué elementos son "el mismo componente" (botones, tarjetas, etiquetas).
 - **SAM 2.1** (Segment Anything): recorta cada elemento con su silueta exacta para corregir las cajas y generar la vista corregida.
 
+- **Analizar desde una URL**: pegas la dirección de tu página y se revisa en **móvil, tablet y escritorio** de una sola vez.
+- **Proyectos**: agrupan los análisis de una misma página y muestran una **gráfica de cómo evoluciona el puntaje**.
+- **Comparar versiones**: eliges dos análisis de un proyecto y te dice qué errores se **arreglaron**, cuáles **siguen** y cuáles son **nuevos**.
+- **Base de datos con `.env`**: los datos de MySQL ya no se ponen en la terminal; van en un archivo.
+- **Diseño LYNX**: tema oscuro (negro, grises y amarillo dorado), logo nuevo y fondo de marca.
+- **Animaciones de hallazgos** (de la rama `feature/diegoqa`): al pasar el mouse por un hallazgo se ilumina su zona en la captura; menús nuevos de zoom y categoría, y botón **Limpiar** para quitar la imagen cargada.
+- **Vista corregida siempre visible**: si la captura no tiene nada que corregir automáticamente, la pestaña lo explica en vez de desaparecer.
+
+> Si ya tenías el proyecto funcionando, solo sigue estos pasos.
+>
+> **¿Ya habías hecho los pasos 1 a 4 antes?** Para el diseño LYNX y las animaciones no hay que instalar nada: basta con `git pull` y recargar la página.
+
 Encima de DINOv2 hay **tres redes neuronales entrenadas por el equipo** (ver [Cómo aprende la IA](#cómo-aprende-la-ia)).
 
 ---
