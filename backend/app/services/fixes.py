@@ -164,6 +164,10 @@ def apply_fixes(rgb: np.ndarray, findings: list[dict], sam=None) -> tuple[np.nda
     for f, sm in zip(geo, masks):
         fx = f["fix"]
         m = _element_mask(img.shape, fx["box"], sm)
+        if fx["type"] == "rotate" and fx.get("poly"):  # silueta exacta: el rectángulo girado completo
+            m = np.zeros((H, W), dtype=np.uint8)
+            cv2.fillPoly(m, [np.array(fx["poly"], dtype=np.int32)], 1)
+            m = cv2.dilate(m, np.ones((5, 5), np.uint8)).astype(bool)
         if fx["type"] == "recolor":
             _recolor(img, m, _rgb(fx["from"]), _rgb(fx["to"]))
             applied.append(f["id"])
@@ -175,7 +179,7 @@ def apply_fixes(rgb: np.ndarray, findings: list[dict], sam=None) -> tuple[np.nda
             rot = cv2.getRotationMatrix2D((pw / 2, ph / 2), float(fx["angle"]), 1.0)
             patch = cv2.warpAffine(patch, rot, (pw, ph), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
             pmask = cv2.warpAffine(pmask.astype(np.uint8), rot, (pw, ph), flags=cv2.INTER_NEAREST).astype(bool)
-            nx, ny = x0, y0
+            nx, ny = x0 + int(fx.get("dx", 0)), y0 + int(fx.get("dy", 0))
         elif fx["type"] == "move":
             nx, ny = x0 + int(fx["dx"]), y0 + int(fx["dy"])
         else:  # resize: se escala la pieza al tamaño de sus gemelos (anclada arriba a la izquierda)
@@ -194,7 +198,7 @@ def apply_fixes(rgb: np.ndarray, findings: list[dict], sam=None) -> tuple[np.nda
 
     if pieces:
         # el hueco se rellena con el fondo que lo rodea (en UI casi siempre es plano)
-        img = cv2.inpaint(img, erase, 3, cv2.INPAINT_TELEA)
+        img = _fill_rows(img, erase.astype(bool))
         for patch, pmask, nx, ny in pieces:
             ph, pw = patch.shape[:2]
             tx0, ty0 = max(0, nx), max(0, ny)
@@ -207,3 +211,32 @@ def apply_fixes(rgb: np.ndarray, findings: list[dict], sam=None) -> tuple[np.nda
             region[sm] = sub[sm]
 
     return img, sorted(set(applied))
+
+
+def _fill_rows(img: np.ndarray, hole: np.ndarray) -> np.ndarray:
+    """Rellena el hueco fila por fila con los colores de sus orillas (izquierda → derecha).
+
+    En las interfaces el fondo va en franjas horizontales (encabezado, secciones): así no se mezcla
+    el blanco del encabezado con el color de la sección de abajo, como pasaba con cv2.inpaint.
+    """
+    out = img.copy()
+    H, W = hole.shape
+    for y in np.nonzero(hole.any(axis=1))[0]:
+        row = hole[y]
+        xs = np.nonzero(row)[0]
+        # tramos seguidos de pixeles a rellenar
+        cuts = np.nonzero(np.diff(xs) > 1)[0]
+        for a, b in zip(np.r_[xs[0], xs[cuts + 1]], np.r_[xs[cuts], xs[-1]]):
+            left = out[y, a - 1].astype(float) if a > 0 else None
+            right = out[y, b + 1].astype(float) if b + 1 < W else None
+            if left is None and right is None:
+                continue
+            left = right if left is None else left
+            right = left if right is None else right
+            t = np.linspace(0, 1, b - a + 3)[1:-1, None]
+            out[y, a:b + 1] = (left * (1 - t) + right * t).round().astype(img.dtype)
+    # suaviza un poco el parche para que no se noten rayas (ruido de compresión en las orillas)
+    blur = cv2.GaussianBlur(out, (1, 5), 0)
+    out[hole] = blur[hole]
+    return out
+

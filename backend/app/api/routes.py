@@ -26,7 +26,7 @@ from app.services.compare import compare
 from app.services.components import check_button_styles, check_button_text_center, check_components
 from app.services.findings import score
 from app.services.fixes import apply_fixes
-from app.services.layout import check_alignment, check_centering, check_spacing, check_overlaps, check_stacked, check_text_rows, detect_elements
+from app.services.layout import check_alignment, check_centering, check_spacing, check_overlaps, check_stacked, check_text_rows, check_button_row, detect_elements
 from app.services.render import annotate, components_overlay, heatmap_overlay, to_data_url
 
 router = APIRouter(prefix="/api")
@@ -112,7 +112,7 @@ def _strict(findings, group_of):
             f.verdict = "descartado"
             f.verdict_reason = "Es una guía para landing pages, no un error. Consúltala en la vista «Atención (IA)»."
             continue
-        if f.verdict == "descartado" or f.source == "dinov2" or f.category in ("contraste", "sistema")                 or f.title.startswith(("Demasiados colores", "Texto fuera de línea", "Botón suelto", "Elemento inclinado", "Elemento encimado", "Texto cortado", "Texto descentrado")):
+        if f.verdict == "descartado" or f.source == "dinov2" or f.category in ("contraste", "sistema")                 or f.title.startswith(("Demasiados colores", "Texto fuera de línea", "Botón suelto", "Botón desalineado", "Tarjeta fuera de la fila", "Elemento inclinado", "Elemento encimado", "Texto cortado", "Texto descentrado")):
             continue
         if f.category == "alineacion" and f.box and f.ref_box:
             ga, gb = group_of.get(tuple(f.box)), group_of.get(tuple(f.ref_box))
@@ -259,71 +259,106 @@ async def analyze(file: UploadFile = File(...), estricto: bool = True):
     def run():
         t0 = time.perf_counter()
         rgb = np.asarray(img)
-        elems = detect_elements(rgb)
-        # detector ENTRENADO (si existe app/ai/weights/detector.pt): suma lo que el clásico no encontró
-        learned = trained_elements(dino.get(), rgb)
-        if learned:
-            # sólo rellena huecos: si ya hay un elemento ahí (aunque la caja difiera unos px), manda el clásico
-            from app.services.layout import _iou
-            learned = [e for e in learned if all(_iou(e, o) < 0.3 for o in elems)]
-            elems = elems + learned
-        # SAM ajusta cada caja a la silueta real (botones pegados, botones cortados) antes de comparar
-        sam_refined = sam.refine_blocks(rgb, elems)
-        from app.services.layout import _dedupe
-        elems = _dedupe(elems)
-        findings = []
-        findings += check_alignment(elems)
-        findings += check_centering(elems, rgb.shape[1])
-        findings += check_spacing(elems)
-        color_findings, pal = check_colors(rgb)
-        findings += color_findings
-        findings += check_contrast(rgb, elems)
-        findings += check_button_styles(rgb, elems)
-        findings += check_text_rows(elems)
-        findings += check_stacked(elems)
-        findings += sam.check_tilt(rgb, elems)
-        findings += check_overlaps(rgb, elems)
-        findings += check_button_text_center(rgb, elems)
+        from app.services.layout import _dedupe, _iou
+        learned = []
 
-        attention, heat, groups, comps = None, None, [], None
+        def detect(image, full=True):
+            """Elementos de la pantalla. full: también el detector entrenado y el ajuste fino de SAM."""
+            nonlocal learned
+            el = detect_elements(image)
+            if full:
+                # detector ENTRENADO: sólo rellena huecos (si ya hay un elemento ahí, manda el clásico)
+                learned = [e for e in trained_elements(dino.get(), image) if all(_iou(e, o) < 0.3 for o in el)]
+                el = el + learned
+                sam.refine_blocks(image, el)  # SAM ajusta cada caja a la silueta real
+            return _dedupe(el)
+
         group_of: dict = {}
+        findings, steps, applied_ids = [], [], set()
+
+        def step(name, image, found, fixable=True):
+            """Revisa, decide (DINOv2 + tus marcas + modo estricto) y corrige. Devuelve la imagen ya corregida."""
+            ts = time.perf_counter()
+            _verify(found, image)
+            if estricto:
+                _strict(found, group_of)
+            base = len(findings)
+            findings.extend(found)
+            out, done = image, []
+            if fixable:
+                todo = [{"id": base + i, "fix": f.fix} for i, f in enumerate(found) if f.fix and f.verdict != "descartado"]
+                if todo:
+                    out, done = apply_fixes(image, todo, sam.get())
+                    applied_ids.update(done)
+            steps.append({"paso": len(steps) + 1, "nombre": name,
+                          "hallazgos": sum(f.verdict != "descartado" for f in found), "corregidos": len(done),
+                          "ms": round((time.perf_counter() - ts) * 1000)})
+            return out, bool(done)
+
+        # ---------- PASO 1: enderezar lo inclinado (todo lo demás se mide mejor derecho) ----------
+        elems = elems0 = detect(rgb)
+        img1, changed = step("Enderezar elementos inclinados", rgb, sam.check_tilt(rgb, elems))
+        if changed:
+            elems = detect(img1)
+
+        # ---------- PASO 2: posiciones y tamaños (sobre la página ya derecha) ----------
+        found = []
+        found += check_alignment(elems)
+        found += check_centering(elems, img1.shape[1])
+        found += check_spacing(elems)
+        found += check_text_rows(elems)
+        found += check_stacked(elems)
+        found += check_button_row(elems, [])
+        found += check_overlaps(img1, elems)
+        found += check_button_text_center(img1, elems)
+        attention, heat, groups, comps = None, None, [], None
         model = dino.get()
         if model:
             sal = model.saliency(img)
-            att_findings, attention = check_attention(rgb, sal, elems)
-            findings += att_findings
+            att_findings, attention = check_attention(rgb, sal, elems0)
+            found += att_findings
             heat = to_data_url(heatmap_overlay(rgb, sal))
-            comp_findings, groups = check_components(rgb, elems, model)
+            comp_findings, groups = check_components(img1, elems, model)
             # si un elemento es más alto/ancho que sus gemelos, su "desalineado" es consecuencia: lo quitamos
             resized = {tuple(f.box) for f in comp_findings if "alto" in f.title or "ancho" in f.title}
-            findings = [f for f in findings if not (f.category == "alineacion" and f.box and tuple(f.box) in resized)]
+            found = [f for f in found if not (f.category == "alineacion" and f.box and tuple(f.box) in resized)]
             # DINOv2 decide qué se compara: un botón no tiene por qué alinearse con una tarjeta
             group_of.update({tuple(b): gi for gi, g in enumerate(groups) for b in g["boxes"]})
             def same_kind(f):
-                if f.category != "alineacion" or not (f.box and f.ref_box):
+                if f.category != "alineacion" or not (f.box and f.ref_box) or f.title.startswith(("Botón desalineado", "Tarjeta fuera")):
                     return True
                 ga, gb = group_of.get(tuple(f.box)), group_of.get(tuple(f.ref_box))
                 return ga is None or gb is None or ga == gb
-            findings = [f for f in findings if same_kind(f)]
-            findings += comp_findings
+            found = [f for f in found if same_kind(f)]
+            found += comp_findings
             if groups:
-                comps = to_data_url(components_overlay(rgb, groups))
+                comps = to_data_url(components_overlay(img1, groups))
+        img2, changed = step("Posiciones, espaciado y tamaños", img1, found)
+        if changed:
+            elems = detect(img2, full=False)
 
-        _verify(findings, rgb)
-        if estricto:
-            _strict(findings, group_of)
+        # ---------- PASO 3: colores y contraste (sobre la página ya acomodada) ----------
+        found = []
+        color_findings, pal = check_colors(img2)
+        found += color_findings
+        found += check_contrast(img2, elems)
+        found += check_button_styles(img2, elems)
+        fixed, _ = step("Colores y contraste", img2, found)
+
+        fixed_objs = {id(findings[i]) for i in applied_ids}
         dicts, annotated, aid = _pack(findings, rgb)
         try:  # dato de entrenamiento real: la captura + lo que encontró (las marcas se suman en feedback.jsonl)
             real = feedback.LOCAL / "real"  # capturas: sólo en esta PC (pesan mucho)
             real.mkdir(parents=True, exist_ok=True)
             img.save(real / f"{aid}.png")
             (real / f"{aid}.json").write_text(json.dumps(
-                {"size": list(img.size), "elements": [{"box": e.box, "kind": e.kind} for e in elems],
+                {"size": list(img.size), "elements": [{"box": e.box, "kind": e.kind} for e in elems0],
                  "findings": [{k: d[k] for k in ("id", "category", "title", "box", "verdict")} for d in dicts]},
                 ensure_ascii=False), encoding="utf-8")
         except OSError:
             pass
-        fixed, applied = apply_fixes(rgb, [d for d in dicts if d["verdict"] != "descartado"], sam.get())
+        # ids finales (_pack reordena por gravedad): qué hallazgos quedaron corregidos
+        applied = sorted(d["id"] for d, f in zip(dicts, findings) if id(f) in fixed_objs)
         return {
             "filename": file.filename,
             "size": list(img.size),
@@ -331,11 +366,12 @@ async def analyze(file: UploadFile = File(...), estricto: bool = True):
             "findings": dicts,
             "palette": pal,
             "attention": attention,
-            "elements_detected": len(elems),
+            "elements_detected": len(elems0),
             "components": [{"label": g["label"], "count": g["count"]} for g in groups],
             "images": {"annotated": annotated, "heatmap": heat, "components": comps,
                        "fixed": to_data_url(fixed) if applied else None},
             "fixes_applied": applied,
+            "pasos": steps,
             "analysis_id": aid,
             "learning": feedback.stats(),
             "detector": {**detector_status(), "elementos_del_modelo": len(learned)},

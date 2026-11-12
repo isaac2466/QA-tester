@@ -1007,3 +1007,11 @@ select { background: var(--surface-2); color: var(--text); border-color: var(--b
 /* 3) Pestañas a la misma altura (estaban 1.5 px desfasadas) */
 .tabs { align-items: flex-end; }
 .tabs button { height: 46px; box-sizing: border-box; }
+
+/* Fila de arriba: origen · tipo de revisión · Analizar (menos scroll) */
+.source-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.source-row .engine { margin-left: auto; }
+.source-row .engine-options button { padding-block: 6px; }
+.source-row .engine-options small { display: none; }
+.source-row > .btn.lg { min-height: 40px; }
+@media (max-width: 760px) { .source-row .engine { margin-left: 0; } .source-row > .btn { width: 100%; justify-content: center; } }

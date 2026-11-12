@@ -533,11 +533,32 @@ export default function App() {
         <section className="card filebar">
           {mode === "analyze" ? (
             <div className="source">
-              <div className="segmented small" role="radiogroup" aria-label="Qué revisar">
-                <button type="button" role="radio" aria-checked={origin === "file"} className={origin === "file" ? "active" : ""}
-                  onClick={() => setOrigin("file")}>Subir captura</button>
-                <button type="button" role="radio" aria-checked={origin === "url"} className={origin === "url" ? "active" : ""}
-                  onClick={() => setOrigin("url")}>Desde una URL</button>
+              <div className="source-row">
+                <div className="segmented small" role="radiogroup" aria-label="Qué revisar">
+                  <button type="button" role="radio" aria-checked={origin === "file"} className={origin === "file" ? "active" : ""}
+                    onClick={() => setOrigin("file")}>Subir captura</button>
+                  <button type="button" role="radio" aria-checked={origin === "url"} className={origin === "url" ? "active" : ""}
+                    onClick={() => setOrigin("url")}>Desde una URL</button>
+                </div>
+                <div className="engine" role="radiogroup" aria-label="Tipo de revisión">
+                  <div className="engine-options">
+                    <button type="button" role="radio" aria-checked={!qwenOn} className={!qwenOn ? "active" : ""}
+                      onClick={() => setDetailed(false)} title="Sólo DINOv2 + SAM 2.1: resultados en segundos">
+                      <b>Rápida</b><small>Unos segundos</small>
+                    </button>
+                    <button type="button" role="radio" aria-checked={qwenOn} className={qwenOn ? "active" : ""}
+                      disabled={!qwenReady} onClick={() => setDetailed(true)}
+                      title={qwenReady
+                        ? "Además, Qwen3-VL lee los textos y busca contradicciones (precios, monedas, condiciones). Tarda ~2 min o más."
+                        : `Qwen no disponible: ${status?.qwen?.error ?? "revisa que Ollama esté abierto"}`}>
+                      <b>Detallada</b><small>Lee los textos y busca contradicciones · ~2 min</small>
+                    </button>
+                  </div>
+                </div>
+                <button type="button" className="btn primary lg" disabled={!ready || loading} onClick={run}>
+                  {loading ? <span className="spinner" /> : <Play />}
+                  {loading ? "Analizando…" : result ? "Analizar de nuevo" : mode === "analyze" ? "Analizar" : "Comparar"}
+                </button>
               </div>
               {origin === "file" ? (
                 <FileSlot label="Captura de tu página" file={file} onFile={setFile} onClear={() => setFile(null)} />
@@ -563,31 +584,14 @@ export default function App() {
                 hint="Captura de tu página al mismo ancho y zoom 100%" />
             </>
           )}
-          <div className="filebar-actions">
-          {mode === "analyze" && (
-            <>
-              <div className="engine" role="radiogroup" aria-label="Tipo de revisión">
-                <div className="engine-options">
-                  <button type="button" role="radio" aria-checked={!qwenOn} className={!qwenOn ? "active" : ""}
-                    onClick={() => setDetailed(false)} title="Sólo DINOv2 + SAM 2.1: resultados en segundos">
-                    <b>Rápida</b><small>Unos segundos</small>
-                  </button>
-                  <button type="button" role="radio" aria-checked={qwenOn} className={qwenOn ? "active" : ""}
-                    disabled={!qwenReady} onClick={() => setDetailed(true)}
-                    title={qwenReady
-                      ? "Además, Qwen3-VL explica cada hallazgo y marca los posibles falsos positivos. En CPU tarda ~1 min por hallazgo."
-                      : `Qwen no disponible: ${status?.qwen?.error ?? "revisa que Ollama esté abierto"}`}>
-                    <b>Detallada</b><small>Lee los textos y busca contradicciones · ~2 min</small>
-                  </button>
-                </div>
-              </div>
-            </>
+          {mode !== "analyze" && (
+            <div className="filebar-actions">
+              <button type="button" className="btn primary lg" disabled={!ready || loading} onClick={run}>
+                {loading ? <span className="spinner" /> : <Play />}
+                {loading ? "Analizando…" : result ? "Analizar de nuevo" : mode === "analyze" ? "Analizar" : "Comparar"}
+              </button>
+            </div>
           )}
-          <button type="button" className="btn primary lg" disabled={!ready || loading} onClick={run}>
-            {loading ? <span className="spinner" /> : <Play />}
-            {loading ? "Analizando…" : result ? "Analizar de nuevo" : mode === "analyze" ? "Analizar" : "Comparar"}
-          </button>
-          </div>
         </section>
 
         {error && <p className="error" role="alert">{error}</p>}

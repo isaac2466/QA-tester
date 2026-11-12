@@ -136,6 +136,11 @@ def detect_elements(rgb: np.ndarray, max_elements=160) -> list[Element]:
         # compensamos la dilatación horizontal para no sesgar el borde izquierdo/derecho
         pad = kx // 2 + 1
         texts.append(Element(x + pad, y + 1, max(1, w - 2 * pad), h - 2, "texto"))
+    # una "línea" que contiene varias líneas más chicas es un marco (p. ej. todo el encabezado unido por un
+    # botón que toca su borde): se quita y quedan las palabras sueltas (Inicio · Precios · Contacto…)
+    def _contains(a, b):
+        return a is not b and a.x <= b.x and a.y <= b.y and b.right <= a.right and b.bottom <= a.bottom
+    texts = [t for t in texts if t.w < 0.5 * W or sum(_contains(t, o) for o in texts) < 2]
     texts = _merge_text_lines(_dedupe(texts))
     texts = [t for t in texts if t.w >= 10 and t.h >= 8 and all(_iou(t, b) < 0.6 for b in blocks)]
 
@@ -323,12 +328,16 @@ def check_text_rows(elems: list[Element], max_findings=4) -> list[Finding]:
     def in_column(e):
         return any(o is not e and _overlap(e.x, e.right, o.x, o.right) > 0.3 * min(e.w, o.w)
                    and 0 < abs(o.cy - e.cy) <= 2.2 * max(e.h, o.h) for o in texts)
-    texts = sorted([e for e in texts if not in_column(e)], key=lambda e: e.x)
+    # el texto de un botón se mueve con su botón (eso lo revisa la regla de botones)
+    blocks = [b for b in elems if b.kind == "bloque" and b.h <= 100]
+    def in_button(e):
+        return any(b.x - 2 <= e.x and b.y - 2 <= e.y and e.right <= b.right + 2 and e.bottom <= b.bottom + 2 for b in blocks)
+    texts = sorted([e for e in texts if not in_column(e) and not in_button(e)], key=lambda e: e.x)
     out, used = [], set()
     for a in texts:
         if id(a) in used:
             continue
-        row = [b for b in texts if abs(b.h - a.h) <= max(3, 0.2 * a.h) and abs(b.cy - a.cy) <= 1.5 * a.h
+        row = [b for b in texts if abs(b.h - a.h) <= max(3, 0.2 * a.h) and abs(b.cy - a.cy) <= 2 * a.h
                and (b is a or _overlap(a.x, a.right, b.x, b.right) == 0)]
         row.sort(key=lambda e: e.x)
         # vecinos razonablemente cerca (un menú, no dos textos en extremos opuestos)
@@ -338,14 +347,17 @@ def check_text_rows(elems: list[Element], max_findings=4) -> list[Finding]:
                 chain.append(b)
         if len(chain) < 3:
             continue
-        med = float(np.median([e.cy for e in chain]))
-        aligned = [e for e in chain if abs(e.cy - med) <= 2]
-        if len(aligned) < 2:
+        # referencia: el grupo más grande que sí está alineado; si todos están sueltos, la mediana
+        thr = lambda e: max(4, 0.25 * e.h)
+        best = max(([o for o in chain if abs(o.cy - e.cy) <= 2] for e in chain), key=len)
+        med = float(np.mean([e.cy for e in best])) if len(best) >= 2 else float(np.median([e.cy for e in chain]))
+        aligned = [e for e in chain if abs(e.cy - med) < thr(e)]
+        if not aligned:
             continue
         for e in chain:
             used.add(id(e))
             d = e.cy - med
-            if max(4, 0.25 * e.h) <= abs(d) <= 1.5 * e.h:
+            if thr(e) <= abs(d) <= 2 * e.h:
                 ref = min(aligned, key=lambda r: abs(r.cx - e.cx))
                 out.append(Finding(
                     category="alineacion", severity="alta",
@@ -442,3 +454,84 @@ def check_overlaps(rgb: np.ndarray, elems: list[Element], max_findings=5) -> lis
                 box=t.box,
             ))
     return out[:max_findings]
+
+
+def check_button_row(elems: list[Element], tilt_findings: list) -> list[Finding]:
+    """Botones lado a lado (Iniciar sesión · Registrarse) a distinta altura.
+
+    Si uno además está girado, su corrección de giro también lo sube/baja a la altura del otro.
+    """
+    tilted = [f for f in tilt_findings if f.fix and f.fix.get("type") == "rotate"]
+
+    def tilt_of(e):
+        for f in tilted:
+            x, y, w, h = f.box
+            if x - 2 <= e.x and y - 2 <= e.y and e.right <= x + w + 2 and e.bottom <= y + h + 2:
+                return f
+        return None
+
+    page_w = max((e.right for e in elems), default=1)
+    btns = []
+    for e in elems:
+        if e.kind != "bloque" or not (24 <= e.h <= 400 and 50 <= e.w <= 0.45 * page_w):
+            continue
+        if e.w < (1.8 if e.h <= 100 else 1.2) * e.h:  # botones y tarjetas son anchos; círculos/íconos/fotos no
+            continue
+        f = tilt_of(e)
+        box = list(f.box) if f else list(e.box)
+        if any(b["box"] == box for b in btns):
+            continue
+        btns.append({"box": box, "tilt": f, "cy": box[1] + box[3] / 2, "h": box[3]})
+    btns.sort(key=lambda b: b["box"][0])
+
+    # filas: elementos de tamaño parecido, uno junto al otro (botones de un menú, tarjetas de una sección)
+    rows, used = [], set()
+    for a in btns:
+        if id(a) in used:
+            continue
+        row = [a]
+        for b in btns:
+            last = row[-1]
+            lx, ly, lw, lh = last["box"]
+            bx, by, bw, bh = b["box"]
+            gap = bx - (lx + lw)
+            if id(b) in used or b is last or not (-6 <= gap <= max(80, 0.6 * lw)):
+                continue
+            if not (0.65 <= bh / lh <= 1.5 and 0.6 <= bw / lw <= 1.6) or _overlap(ly, ly + lh, by, by + bh) <= 0:
+                continue
+            row.append(b)
+        if len(row) >= 2:
+            used.update(id(r) for r in row)
+            rows.append(row)
+
+    out = []
+    for row in rows:
+        if len(row) >= 3:  # la mayoría manda
+            ref_cy = float(np.median([r["cy"] for r in row]))
+            offs = [(r, ref_cy - r["cy"]) for r in row]
+        else:  # dos: se mueve el girado (o el de la derecha)
+            a, b = row
+            off = b if (b["tilt"] or not a["tilt"]) else a
+            other = a if off is b else b
+            offs = [(off, other["cy"] - off["cy"])]
+        for off, dy in offs:
+            h = off["h"]
+            if not (max(4, 0.15 * h) <= abs(dy) <= h):
+                continue
+            ref = min((r for r in row if r is not off), key=lambda r: abs(r["box"][0] - off["box"][0]))
+            if off["tilt"]:
+                off["tilt"].fix["dy"] = round(dy)  # el giro y el ajuste de altura van juntos
+                fix = None
+            else:
+                fix = {"type": "move", "box": off["box"], "dx": 0, "dy": round(dy)}
+            kind = "botón" if h <= 100 else "elemento"
+            out.append(Finding(
+                category="alineacion", severity="media",
+                title=f"Botón desalineado con su vecino ({abs(dy):.0f}px)" if h <= 100
+                      else f"Tarjeta fuera de la fila ({abs(dy):.0f}px)",
+                detail=f"Este {kind} está {abs(dy):.0f}px más {'abajo' if dy < 0 else 'arriba'} que los demás de su fila; "
+                       "en una misma fila deberían compartir la misma altura.",
+                suggestion=f"{'Súbelo' if dy < 0 else 'Bájalo'} {abs(dy):.0f}px para alinearlo con los demás.",
+                box=off["box"], ref_box=ref["box"], fix=fix,
+            ))
+    return out
