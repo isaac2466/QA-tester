@@ -84,6 +84,7 @@ def main():
     ap.add_argument("--val", type=int, default=40)
     ap.add_argument("--epochs", type=int, default=40)
     ap.add_argument("--lr", type=float, default=2e-3)
+    ap.add_argument("--resume", action="store_true", help="seguir entrenando el detector actual en vez de empezar de cero")
     a = ap.parse_args()
 
     torch.manual_seed(0)
@@ -101,6 +102,9 @@ def main():
         tg[pt] = targets(meta["elements"], *meta["size"], f.shape[1], f.shape[2])
 
     head = DetectorHead()
+    if a.resume and (WEIGHTS / "detector.pt").exists():
+        head.load_state_dict(torch.load(WEIGHTS / "detector.pt"))
+        print("Continuando desde el detector actual", flush=True)
     opt = torch.optim.AdamW(head.parameters(), lr=a.lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, a.epochs)
     print(f"Entrenando {a.epochs} épocas con {len(train)} pantallas...", flush=True)

@@ -327,3 +327,141 @@ def explain(rgb: np.ndarray, findings: list[dict], cancel: threading.Event | Non
             "texto": (h.get("texto_visible") or "").strip(),
         }
     return out
+
+
+# ---------- Revisión de la página completa (lista de revisión visual) ----------
+
+REVIEW_TYPES = ["encimado", "cortado", "contraste", "contradiccion", "imagen_deformada",
+                "jerarquia", "formulario", "alineacion"]
+REVIEW_CATEGORY = {"encimado": "alineacion", "cortado": "alineacion", "alineacion": "alineacion",
+                   "contraste": "contraste", "contradiccion": "contenido", "imagen_deformada": "diseno",
+                   "jerarquia": "jerarquia", "formulario": "formulario"}
+
+REVIEW_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "textos": {"type": "string"},
+        "contradicciones": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "severidad": {"type": "string", "enum": ["alta", "media", "baja"]},
+                    "titulo": {"type": "string"},
+                    "detalle": {"type": "string"},
+                    "sugerencia": {"type": "string"},
+                    "caja": {"type": "array", "items": {"type": "integer"}},
+                },
+                "required": ["severidad", "titulo", "detalle", "sugerencia", "caja"],
+            },
+        },
+        "resumen": {"type": "string"},
+    },
+    "required": ["textos", "contradicciones", "resumen"],
+}
+
+# "Detallada" = además LEE el texto. Lo visual (encimados, alineación, contraste) ya lo miden las reglas rápidas;
+# un modelo chico en CPU no lo ve bien, pero sí puede leer y comparar textos.
+REVIEW_PROMPT = """Eres un revisor de contenido de páginas web. Lee con atención TODO el texto de esta captura.
+Responde SIEMPRE en español y SOLO con el JSON pedido.
+
+PASO 1 – "textos" (máximo 80 palabras): copia los textos importantes: promesas y condiciones ("sin cargos",
+"todos los precios en..."), nombres de planes con su precio y moneda exactos, notas al pie, y textos de botones.
+
+PASO 2 – "contradicciones": compara esos textos entre sí y lista los que se contradicen o confunden al usuario:
+- monedas distintas cuando se dice que todo es en una sola moneda (MXN vs USD),
+- "sin cargos" / "gratis" junto a un cargo obligatorio,
+- el mismo plan o producto con dos precios distintos,
+- promesas que otra parte de la página desmiente,
+- dos botones principales con textos que no explican su diferencia (ej. "Enviar" y "Continuar").
+Para cada una: "titulo" corto citando los textos (ej. "Dice «todos en MXN» pero Empresa está en USD"),
+"detalle" con dónde está cada texto, "sugerencia" con cómo corregir el texto, y "caja" = [x1, y1, x2, y2] del
+texto contradictorio en coordenadas de 0 a 1000. Si no hay contradicciones, deja la lista vacía.
+
+PASO 3 – "resumen": 1 frase."""
+
+
+def review_page(rgb: np.ndarray, cancel: threading.Event | None = None) -> tuple[list[dict], str]:
+    """Qwen revisa la página completa con la lista de revisión. Devuelve (hallazgos, resumen)."""
+    H, W = rgb.shape[:2]
+    payload = {
+        "model": OLLAMA_MODEL, "think": False, "format": REVIEW_SCHEMA, "keep_alive": "30m",
+        "options": {"temperature": 0, "num_ctx": 8192, "num_predict": 900},
+        "messages": [{"role": "user", "content": REVIEW_PROMPT, "images": [_encode(rgb, VLM_MAX_SIDE)]}],
+    }
+    content, _ = _chat(payload, cancel)
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError:
+        raise RuntimeError("Qwen devolvió una respuesta incompleta; intenta de nuevo.")
+    # Qwen lee bien pero compara mal: la comparación se hace aparte (reglas + Llama 3.2, sólo texto)
+    textos = data.get("textos", "")
+    found = list(data.get("contradicciones", []))
+    extra = _text_rules(textos) + _text_llm(textos, cancel)
+    seen = {_tidy(c.get("titulo"), 60).lower() for c in found}
+    for c in extra:
+        key = _tidy(c.get("titulo"), 60).lower()
+        if key and key not in seen:
+            seen.add(key)
+            found.append({**c, "severidad": "alta", "caja": []})
+    out = []
+    for p in found[:6]:
+        box = None
+        c = p.get("caja")
+        if isinstance(c, list) and len(c) == 4 and all(isinstance(v, (int, float)) for v in c):
+            x1, y1, x2, y2 = (max(0, min(1000, v)) for v in c)
+            if x2 > x1 and y2 > y1:
+                box = [round(x1 * W / 1000), round(y1 * H / 1000), round((x2 - x1) * W / 1000), round((y2 - y1) * H / 1000)]
+        out.append({
+            "category": "contenido",
+            "severity": p.get("severidad") if p.get("severidad") in ("alta", "media", "baja") else "media",
+            "title": _tidy(p.get("titulo"), 120) or "Observación de diseño",
+            "detail": _tidy(p.get("detalle"), 400),
+            "suggestion": _tidy(p.get("sugerencia"), 300),
+            "box": box, "ref_box": None, "source": "qwen", "verdict": "confirmado",
+            "verdict_reason": "Qwen leyó los textos de la página y encontró que se contradicen.",
+        })
+    return out, _tidy(data.get("resumen"), 400)
+
+
+# ---------- Paso 2: comparar los textos que leyó Qwen (reglas + Llama 3.2 de Meta, sólo texto) ----------
+import re as _re
+
+TEXT_MODEL = "llama3.2:3b"
+_CURRENCIES = {"MXN": "MXN", "USD": "USD", "EUR": "EUR", "PESOS": "MXN", "DÓLARES": "USD", "DOLARES": "USD"}
+
+
+def _text_rules(t: str) -> list[dict]:
+    """Contradicciones típicas, detectadas sin IA (instantáneo y seguro)."""
+    out, up = [], t.upper()
+    claim = _re.search(r"TOD[OA]S? (?:LOS |LAS )?(?:PRECIOS|COSTOS|TARIFAS)[^.]*?\b(MXN|USD|EUR|PESOS|D[ÓO]LARES)\b", up)
+    if claim:
+        main = _CURRENCIES[claim.group(1).replace("Ó", "Ó")] if claim.group(1) in _CURRENCIES else claim.group(1)
+        others = sorted({_CURRENCIES[c] for c in _re.findall(r"\b(MXN|USD|EUR|PESOS|D[ÓO]LARES)\b", up) if c in _CURRENCIES} - {main})
+        if others:
+            out.append({"titulo": f"Dice que todos los precios son en {main}, pero aparece {', '.join(others)}",
+                        "detalle": f"La página promete una sola moneda ({main}) y algún precio está en {', '.join(others)}.",
+                        "sugerencia": f"Usa {main} en todos los planes o aclara qué precios están en otra moneda."})
+    if _re.search(r"SIN (?:CARGOS?|COSTOS?)", up) and _re.search(r"(OBLIGATORI|CARGO DE|COSTO DE)[^.]*\$\s?\d|\$\s?[\d,]+[^.]*OBLIGATORI", up):
+        out.append({"titulo": "Promete «sin cargos», pero muestra un cargo obligatorio",
+                    "detalle": "Un texto dice que no hay cargos y otro cobra un cargo obligatorio.",
+                    "sugerencia": "Elimina la promesa «sin cargos» o el cargo obligatorio, para que las condiciones sean consistentes."})
+    return out
+
+
+def _text_llm(t: str, cancel=None) -> list[dict]:
+    """Llama 3.2 (Meta) compara los textos y busca otras contradicciones. Sólo texto: rápido en CPU."""
+    schema = {"type": "object", "properties": {"contradicciones": {"type": "array", "items": {"type": "object", "properties": {
+        "titulo": {"type": "string"}, "detalle": {"type": "string"}, "sugerencia": {"type": "string"}},
+        "required": ["titulo", "detalle", "sugerencia"]}}}, "required": ["contradicciones"]}
+    prompt = ("Estos son los textos de una página web. Busca SÓLO contradicciones reales entre ellos: monedas distintas "
+              "cuando se promete una sola, 'sin cargos' junto a un cargo obligatorio, el mismo plan con dos precios, promesas "
+              "que otro texto desmiente. Si no hay, devuelve una lista vacía. Responde en español y sólo con el JSON.\n\n"
+              f"TEXTOS:\n{t}")
+    try:
+        content, _ = _chat({"model": TEXT_MODEL, "format": schema, "keep_alive": "10m",
+                            "options": {"temperature": 0, "num_predict": 400},
+                            "messages": [{"role": "user", "content": prompt}]}, cancel)
+        return json.loads(content).get("contradicciones", [])[:4]
+    except (RuntimeError, OSError, ValueError):
+        return []  # si Llama no está instalado o falla, quedan las reglas

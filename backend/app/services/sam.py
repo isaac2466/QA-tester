@@ -106,3 +106,51 @@ def refine_blocks(rgb: np.ndarray, elems: list, max_blocks: int = 25) -> int:
             e.x, e.y, e.w, e.h = nx, ny, nw, nh
             fixed += 1
     return fixed
+
+
+def _edge_angle(rgb: np.ndarray, box) -> float | None:
+    """Ángulo (grados) de los bordes largos casi horizontales del elemento, o None.
+
+    Usa las líneas largas de los bordes (arriba/abajo): una etiqueta que se sale del borde o una
+    sombra no las mueven, así que es más robusto que la silueta completa.
+    """
+    import cv2
+    H, W = rgb.shape[:2]
+    x, y, w, h = box
+    x0, y0, x1, y1 = max(0, x - 12), max(0, y - 12), min(W, x + w + 12), min(H, y + h + 12)
+    gray = cv2.cvtColor(np.ascontiguousarray(rgb[y0:y1, x0:x1]), cv2.COLOR_RGB2GRAY)
+    edges = cv2.Canny(gray, 8, 24)  # sensible: bordes oscuros sobre fondo oscuro también cuentan
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 720, threshold=int(0.25 * w), minLineLength=int(0.45 * w), maxLineGap=16)
+    if lines is None:
+        return None
+    angs = [float(np.degrees(np.arctan2(y2 - y1, x2 - x1))) for x1, y1, x2, y2 in np.asarray(lines).reshape(-1, 4)]
+    angs = [a for a in angs if abs(a) <= 15]
+    if len(angs) < 2:  # al menos dos bordes (o dos tramos) que coincidan
+        return None
+    med = float(np.median(angs))
+    if sum(abs(a - med) <= 0.6 for a in angs) < 2:
+        return None
+    return med
+
+
+def check_tilt(rgb: np.ndarray, elems: list, max_items: int = 3) -> list:
+    """Tarjetas o imágenes inclinadas: se mide el ángulo de sus bordes largos (SAM las endereza después)."""
+    from app.services.findings import Finding
+    H, W = rgb.shape[:2]
+    cands = [e for e in elems if e.kind == "bloque" and e.w >= 120 and e.h >= 80
+             and 0.01 * W * H <= e.w * e.h <= 0.4 * W * H][:8]
+    out = []
+    for e in cands:
+        a = _edge_angle(rgb, e.box)
+        if a is None or not (0.8 <= abs(a) <= 15):
+            continue
+        out.append(Finding(
+            category="alineacion", severity="baja", source="sam",
+            title=f"Elemento inclinado {abs(a):.1f}°",
+            detail=f"Los bordes de este elemento están girados {abs(a):.1f}° respecto a la página, "
+                   f"mientras el resto de la interfaz está recto.",
+            suggestion="Si no es un efecto intencional (algunas landings inclinan imágenes del producto como decoración), "
+                       "quita el transform: rotate(...) para enderezarlo. Si es intencional, márcalo como «No es error».",
+            box=e.box, fix={"type": "rotate", "box": e.box, "angle": a},
+        ))
+    return out[:max_items]

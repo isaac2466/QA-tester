@@ -149,7 +149,7 @@ def apply_fixes(rgb: np.ndarray, findings: list[dict], sam=None) -> tuple[np.nda
         if fx["type"] == "recolor" and (fx["from"], fx["to"]) in global_done:
             applied.append(f["id"])  # ya lo resolvió la unificación de color
             continue
-        if fx["type"] in ("move", "resize", "recolor") and key not in touched:
+        if fx["type"] in ("move", "resize", "recolor", "rotate") and key not in touched:
             touched.add(key)
             geo.append(f)
     # no tocar elementos que están dentro de otro que también se corrige (se moverían dos veces)
@@ -170,7 +170,13 @@ def apply_fixes(rgb: np.ndarray, findings: list[dict], sam=None) -> tuple[np.nda
             continue
         x0, y0, x1, y1 = _clip_box(fx["box"], W, H, pad=2)
         patch, pmask = img[y0:y1, x0:x1].copy(), m[y0:y1, x0:x1].copy()
-        if fx["type"] == "move":
+        if fx["type"] == "rotate":  # enderezar: girar la pieza (y su silueta) sobre su centro
+            ph, pw = patch.shape[:2]
+            rot = cv2.getRotationMatrix2D((pw / 2, ph / 2), float(fx["angle"]), 1.0)
+            patch = cv2.warpAffine(patch, rot, (pw, ph), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            pmask = cv2.warpAffine(pmask.astype(np.uint8), rot, (pw, ph), flags=cv2.INTER_NEAREST).astype(bool)
+            nx, ny = x0, y0
+        elif fx["type"] == "move":
             nx, ny = x0 + int(fx["dx"]), y0 + int(fx["dy"])
         else:  # resize: se escala la pieza al tamaño de sus gemelos (anclada arriba a la izquierda)
             bx, by, bw, bh = fx["box"]

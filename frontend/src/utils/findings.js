@@ -6,6 +6,10 @@ export const CATEGORY = {
   atencion: "Atención",
   consistencia: "Consistencia",
   sistema: "Sistema de diseño",
+  contenido: "Contenido",
+  jerarquia: "Jerarquía",
+  formulario: "Formulario",
+  diseno: "Diseño",
   diferencia: "Diferencia",
 };
 

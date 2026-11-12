@@ -156,6 +156,13 @@ def _color_findings(rgb: np.ndarray, members: list[Element], noun) -> list[Findi
     return out
 
 
+def _is_bar_chart(members) -> bool:
+    """Barras de una gráfica: misma base (alineadas abajo) y alturas que varían a propósito."""
+    bottoms = [m.bottom for m in members]
+    hs = [m.h for m in members]
+    return len(members) >= 3 and max(bottoms) - min(bottoms) <= 4 and (max(hs) - min(hs)) > 0.15 * max(hs)
+
+
 def _row_offsets(members, noun) -> list[Finding]:
     """Hermanos en la misma fila que empiezan a distinta altura (p. ej. 3 tarjetas desfasadas 10-40px)."""
     out = []
@@ -277,6 +284,8 @@ def check_components(rgb: np.ndarray, elems: list[Element], dino) -> tuple[list[
                        "boxes": [e.box for e in members]})
         if len(members) < MIN_GROUP:
             continue
+        if _is_bar_chart(members):
+            continue  # es una gráfica: las alturas distintas son los datos, no se comparan
         found = _row_offsets(members, noun)
         found += _size_findings(members, noun, "h")
         flagged = {tuple(f.box) for f in found}
@@ -288,3 +297,35 @@ def check_components(rgb: np.ndarray, elems: list[Element], dino) -> tuple[list[
         findings += found
     groups.sort(key=lambda g: -g["count"])
     return findings[:10], groups
+
+
+def check_button_text_center(rgb: np.ndarray, elems: list, max_findings=3) -> list[Finding]:
+    """Texto del botón pegado arriba o abajo (no centrado verticalmente)."""
+    from app.services.colors import _chroma_hue
+    out = []
+    for b in elems:
+        if b.kind != "bloque" or not (24 <= b.h <= 80 and 1.5 <= b.w / b.h <= 10):
+            continue
+        # un pedazo de botón (dentro de otro bloque de altura parecida) no es el botón
+        if any(o is not b and o.kind == "bloque" and o.area > b.area and o.h <= 1.4 * b.h and o.x - 3 <= b.x
+               and o.y - 3 <= b.y and b.right <= o.right + 3 and b.bottom <= o.bottom + 3 for o in elems):
+            continue
+        fill = _fill(rgb, b).astype(np.float32)
+        crop = rgb[b.y + 2:b.bottom - 2, b.x + 4:b.right - 4].astype(np.float32)
+        if crop.size == 0 or _chroma_hue(fill)[0] < 15:
+            continue
+        ink = np.linalg.norm(crop - fill, axis=2) > 80
+        rows = np.nonzero(ink.mean(axis=1) > 0.02)[0]
+        if len(rows) < 4 or ink.mean() > 0.45:
+            continue
+        top, bottom = int(rows[0]), int(crop.shape[0] - 1 - rows[-1])
+        if abs(top - bottom) >= max(6, 0.25 * b.h):
+            out.append(Finding(
+                category="alineacion", severity="media",
+                title=f"Texto descentrado en el botón ({abs(top - bottom)}px)",
+                detail=f"El texto tiene {top}px de espacio arriba y {bottom}px abajo: está pegado al borde "
+                       f"{'superior' if top < bottom else 'inferior'}.",
+                suggestion="Centra el contenido (display:flex; align-items:center) o iguala el padding de arriba y abajo.",
+                box=b.box,
+            ))
+    return out[:max_findings]

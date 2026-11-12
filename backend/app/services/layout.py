@@ -380,3 +380,65 @@ def check_stacked(elems: list[Element]) -> list[Finding]:
                     box=b.box, ref_box=a.box, fix={"type": "move", "box": b.box, "dx": -round(d), "dy": 0},
                 ))
     return out[:4]
+
+
+def _inter(a: Element, b: Element) -> float:
+    return max(0, min(a.right, b.right) - max(a.x, b.x)) * max(0, min(a.bottom, b.bottom) - max(a.y, b.y))
+
+
+def _inside(a: Element, b: Element, m=3) -> bool:
+    return b.x - m <= a.x and b.y - m <= a.y and a.right <= b.right + m and a.bottom <= b.bottom + m
+
+
+def check_overlaps(rgb: np.ndarray, elems: list[Element], max_findings=5) -> list[Finding]:
+    """Elementos encimados (uno tapa parte de otro) y textos cortados en el borde de la pantalla."""
+    H, W = rgb.shape[:2]
+    big = 0.25 * W * H  # secciones y fondos contienen todo: no cuentan como "encima"
+    blocks = [b for b in elems if b.kind == "bloque" and b.area < big]
+    texts = [t for t in elems if t.kind == "texto" and 8 <= t.h <= 80 and t.w < 0.6 * W]
+    out = []
+    all_blocks = [b for b in elems if b.kind == "bloque"]
+
+    def same_mockup(a, b):
+        """Los dos dentro de una misma tarjeta alta (ilustración, maqueta de dashboard): ahí encimar es parte del dibujo."""
+        return any(p is not a and p is not b and p.h >= 100 and _inside(a, p, 6) and _inside(b, p, 6) for p in all_blocks)
+    # texto tapado en parte por un bloque que no es su contenedor
+    for t in texts:
+        for b in blocks:
+            i = _inter(t, b)
+            if i < 0.15 * t.area or i > 0.85 * t.area or _inside(t, b) or _inside(b, t) or same_mockup(t, b):
+                continue
+            out.append(Finding(
+                category="alineacion", severity="alta",
+                title="Elemento encimado: tapa parte de un texto",
+                detail=f"Un elemento ({b.w}×{b.h}px en x={b.x}, y={b.y}) cubre el {i / t.area:.0%} de un texto que no está dentro de él.",
+                suggestion="Separa los elementos (margin, gap o z-index) o ajusta el ancho del contenedor para que el texto no quede debajo.",
+                box=t.box, ref_box=b.box,
+            ))
+            break
+    # bloque encimado sobre otro bloque (burbujas, banners, ilustraciones)
+    for a in blocks:
+        for b in blocks:
+            if a is b or a.area > b.area:
+                continue
+            i = _inter(a, b)
+            if 0.08 * a.area <= i <= 0.7 * a.area and not _inside(a, b) and not _inside(b, a) and not same_mockup(a, b):
+                out.append(Finding(
+                    category="alineacion", severity="alta",
+                    title="Elemento encimado sobre otro",
+                    detail=f"Este elemento tapa el {i / a.area:.0%} de otro elemento ({b.w}×{b.h}px en x={b.x}, y={b.y}).",
+                    suggestion="Si es un elemento flotante (chat, cookies, avisos), deja espacio abajo o muévelo para que no tape botones ni texto.",
+                    box=a.box, ref_box=b.box,
+                ))
+                break
+    # texto cortado por el borde de la pantalla
+    for t in texts:
+        if t.x <= 1 or t.right >= W - 1:
+            out.append(Finding(
+                category="alineacion", severity="alta",
+                title="Texto cortado en el borde de la pantalla",
+                detail="Este texto toca el borde de la imagen: probablemente se sale de la pantalla y se corta.",
+                suggestion="Permite que el texto haga salto de línea (sin white-space: nowrap), reduce su tamaño en móvil o agrega padding lateral.",
+                box=t.box,
+            ))
+    return out[:max_findings]

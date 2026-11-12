@@ -8,7 +8,7 @@ import ProjectDetail from "./pages/ProjectDetail.jsx";
 import ProjectsPage from "./pages/ProjectsPage.jsx";
 import VersionCompare from "./pages/VersionCompare.jsx";
 import {
-  analyzeImage, captureUrl, clearHistory, compareImages, explainFindings, getHistory, getHistoryEntry, getProjects,
+  analyzeImage, captureUrl, clearHistory, compareImages, explainFindings, reviewPage, getHistory, getHistoryEntry, getProjects,
   health, login, logout, me, register, saveHistory, sendFeedback,
 } from "./services/api.js";
 import { go, useRoute } from "./utils/route.js";
@@ -262,13 +262,32 @@ export default function App() {
   // Qwen explica los hallazgos y opina si son falsos positivos. Va por lotes y en segundo plano:
   // los resultados de DINOv2 se ven al instante y cada tarjeta se completa cuando Qwen responde.
   // Si un lote falla se reintenta una vez y, si vuelve a fallar, se salta y se sigue con los demás.
-  const runQwen = async (img, data, historyId) => {
+  const runQwen = async (img, data0, historyId) => {
+    let data = data0;
     stopQwen();
     const myRun = qwenRun.current;
     const ctrl = new AbortController();
     qwenAbort.current = ctrl;
     // sólo los que se muestran: los descartados por la IA no necesitan explicación
-    const pending = data.findings.filter((f) => f.verdict !== "descartado" && !data.qwen?.[f.id]);
+    // 1) Qwen revisa la página completa (encimados, cortados, contradicciones de texto...) y suma hallazgos
+    if (!data.qwen_review) {
+      setQwen({ done: 0, total: 1, failed: 0, error: null });
+      try {
+        const rev = await reviewPage(img, ctrl.signal);
+        if (qwenRun.current !== myRun) return;
+        const start = Math.max(0, ...data.findings.map((f) => f.id)) + 1;
+        const extra = rev.findings.map((f, i) => ({ ...f, id: start + i }));
+        data = { ...data, findings: [...data.findings, ...extra], qwen_review: { summary: rev.summary, count: extra.length } };
+        const upd = (r) => (r && r.analysis_id === data.analysis_id ? { ...r, findings: data.findings, qwen_review: data.qwen_review } : r);
+        setResults((r) => ({ ...r, analyze: upd(r.analyze) }));
+        setShots((list) => list.map((x) => ({ ...x, result: upd(x.result) })));
+      } catch (e) {
+        if (qwenRun.current !== myRun || ctrl.signal.aborted) return;
+        setQwen((q) => ({ ...q, error: `No se pudo revisar la página: ${e.message}` }));
+      }
+    }
+    // 2) explicación de cada hallazgo
+    const pending = data.findings.filter((f) => f.verdict !== "descartado" && !data.qwen?.[f.id] && f.source !== "qwen");
     const acc = { ...(data.qwen ?? {}) };
     let failed = 0;
     let lastError = null;
@@ -556,7 +575,7 @@ export default function App() {
                     title={qwenReady
                       ? "Además, Qwen3-VL explica cada hallazgo y marca los posibles falsos positivos. En CPU tarda ~1 min por hallazgo."
                       : `Qwen no disponible: ${status?.qwen?.error ?? "revisa que Ollama esté abierto"}`}>
-                    <b>Detallada</b><small>Explica cada hallazgo · ~1 min</small>
+                    <b>Detallada</b><small>Lee los textos y busca contradicciones · ~2 min</small>
                   </button>
                 </div>
               </div>
@@ -613,7 +632,7 @@ export default function App() {
                     <span className="sk sk-title" />
                     {[0, 1, 2, 3].map((i) => <span key={i} className="sk sk-row" style={{ "--i": i }} />)}
                   </div>
-                  <p className="sk-note">{progress ?? "DINOv2 está revisando cada elemento…"}</p>
+              
                 </div>
               ) : mode === "analyze" ? (
                 <>

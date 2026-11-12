@@ -23,10 +23,10 @@ from app.services import dino, sam, vlm
 from app.services.attention import check_attention
 from app.services.colors import check_colors, check_contrast
 from app.services.compare import compare
-from app.services.components import check_button_styles, check_components
+from app.services.components import check_button_styles, check_button_text_center, check_components
 from app.services.findings import score
 from app.services.fixes import apply_fixes
-from app.services.layout import check_alignment, check_centering, check_spacing, check_stacked, check_text_rows, detect_elements
+from app.services.layout import check_alignment, check_centering, check_spacing, check_overlaps, check_stacked, check_text_rows, detect_elements
 from app.services.render import annotate, components_overlay, heatmap_overlay, to_data_url
 
 router = APIRouter(prefix="/api")
@@ -112,7 +112,7 @@ def _strict(findings, group_of):
             f.verdict = "descartado"
             f.verdict_reason = "Es una guía para landing pages, no un error. Consúltala en la vista «Atención (IA)»."
             continue
-        if f.verdict == "descartado" or f.source == "dinov2" or f.category in ("contraste", "sistema")                 or f.title.startswith(("Demasiados colores", "Texto fuera de línea", "Botón suelto")):
+        if f.verdict == "descartado" or f.source == "dinov2" or f.category in ("contraste", "sistema")                 or f.title.startswith(("Demasiados colores", "Texto fuera de línea", "Botón suelto", "Elemento inclinado", "Elemento encimado", "Texto cortado", "Texto descentrado")):
             continue
         if f.category == "alineacion" and f.box and f.ref_box:
             ga, gb = group_of.get(tuple(f.box)), group_of.get(tuple(f.ref_box))
@@ -281,6 +281,9 @@ async def analyze(file: UploadFile = File(...), estricto: bool = True):
         findings += check_button_styles(rgb, elems)
         findings += check_text_rows(elems)
         findings += check_stacked(elems)
+        findings += sam.check_tilt(rgb, elems)
+        findings += check_overlaps(rgb, elems)
+        findings += check_button_text_center(rgb, elems)
 
         attention, heat, groups, comps = None, None, [], None
         group_of: dict = {}
@@ -370,6 +373,39 @@ async def compare_images(design: UploadFile = File(...), implementation: UploadF
         }
 
     return await run_in_threadpool(run)
+
+
+@router.post("/review")
+async def review(request: Request, file: UploadFile = File(...)):
+    """Qwen revisa la página completa con una lista de errores visuales (encimados, cortados,
+    contradicciones de texto, imágenes deformadas, jerarquía, formularios). Va aparte porque en CPU tarda."""
+    img = await _read_image(file)
+    st = vlm.status()
+    if not st["available"]:
+        raise HTTPException(503, st["error"])
+    cancel = threading.Event()
+
+    def run():
+        t0 = time.perf_counter()
+        try:
+            found, summary = vlm.review_page(np.asarray(img), cancel)
+        except vlm.Cancelled:
+            return None
+        except RuntimeError as e:
+            raise HTTPException(502, str(e))
+        except OSError as e:
+            raise HTTPException(504, f"Qwen no respondió a tiempo ({e}).")
+        return {"findings": found, "summary": summary, "elapsed_ms": round((time.perf_counter() - t0) * 1000)}
+
+    task = asyncio.ensure_future(run_in_threadpool(run))
+    while not task.done():
+        await asyncio.wait({task}, timeout=1)
+        if not task.done() and await request.is_disconnected():
+            cancel.set()
+    result = task.result()
+    if result is None:
+        raise HTTPException(499, "Cancelado")
+    return result
 
 
 @router.post("/explain")

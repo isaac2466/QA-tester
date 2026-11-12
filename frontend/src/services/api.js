@@ -73,6 +73,13 @@ export async function explainFindings(file, findings, signal) {
   return post("/api/explain", formData, signal);
 }
 
+/** Qwen revisa la página completa con la lista de errores visuales (tarda varios minutos en CPU). */
+export async function reviewPage(file, signal) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return post("/api/review", formData, signal);
+}
+
 // Proyectos: agrupan análisis para ver cómo evoluciona el puntaje
 export const getProjects = () => jsonRequest("/api/projects", "GET");
 export const createProject = (name, url) => jsonRequest("/api/projects", "POST", { name, url });
