@@ -176,9 +176,11 @@ svg { flex: none; }
 .stage .top-img { position: absolute; inset: 0; }
 .stage-label {
   position: absolute; top: 8px; left: 8px; z-index: 3; padding: 3px 10px; border-radius: 6px;
-  background: rgba(255, 255, 255, .92); border: 1px solid var(--border); font-size: 13px; font-weight: 500; pointer-events: none;
+  background: rgba(255, 255, 255, .92); border: 1px solid var(--border); font-size: 13px; font-weight: 500;
+  pointer-events: none; opacity: 1; transition: opacity .15s ease;
 }
 .stage-label.right { left: auto; right: 8px; }
+.stage:hover .stage-label { opacity: 0; }
 .side { display: flex; gap: 12px; }
 .side .stage { flex: 1 1 0; min-width: 0; margin: 0; }
 .side .stage[style*="px"] { flex: none; }
