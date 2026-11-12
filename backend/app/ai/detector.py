@@ -88,9 +88,9 @@ def loss_fn(pred, tgt):
     lp = -(torch.log(p) * (1 - p) ** 2 * pos).sum()
     ln = -(torch.log(1 - p) * p ** 2 * (1 - heat_t) ** 4 * (1 - pos)).sum()
     n = pos.sum().clamp(min=1)
-    any_pos = mask.amax(0, keepdim=True)
+    any_pos = mask.amax(1, keepdim=True)  # dim 1 = clases (dim 0 es el lote)
     l_off = (F.l1_loss(off_p, off_t, reduction="none") * any_pos).sum() / n
-    m2 = mask.repeat_interleave(2, dim=0)
+    m2 = mask.repeat_interleave(2, dim=1)
     l_size = (F.l1_loss(size_p, size_t, reduction="none") * m2).sum() / n
     return (lp + ln) / n + l_off + 0.5 * l_size
 
