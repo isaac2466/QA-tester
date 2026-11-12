@@ -272,7 +272,7 @@ def explain(rgb: np.ndarray, findings: list[dict], cancel: threading.Event | Non
         "model": OLLAMA_MODEL,
         "think": False,
         "format": SCHEMA,
-        "keep_alive": "30m",  # deja el modelo en memoria: el siguiente lote no espera a que cargue
+        "keep_alive": "2m",  # deja el modelo en memoria: el siguiente lote no espera a que cargue
         "options": {"temperature": 0, "repeat_penalty": 1.15, "num_ctx": 8192,
                     "num_predict": 380 * len(findings) + 150},
         "messages": [{"role": "user", "content": prompt, "images": [_encode(image, VLM_MAX_SIDE)]}],
@@ -385,7 +385,7 @@ def review_page(rgb: np.ndarray, cancel: threading.Event | None = None) -> tuple
     """Qwen revisa la página completa con la lista de revisión. Devuelve (hallazgos, resumen)."""
     H, W = rgb.shape[:2]
     payload = {
-        "model": OLLAMA_MODEL, "think": False, "format": REVIEW_SCHEMA, "keep_alive": "30m",
+        "model": OLLAMA_MODEL, "think": False, "format": REVIEW_SCHEMA, "keep_alive": "2m",
         "options": {"temperature": 0, "num_ctx": 8192, "num_predict": 900},
         "messages": [{"role": "user", "content": REVIEW_PROMPT, "images": [_encode(rgb, VLM_MAX_SIDE)]}],
     }
@@ -397,7 +397,7 @@ def review_page(rgb: np.ndarray, cancel: threading.Event | None = None) -> tuple
     # Qwen lee bien pero compara mal: la comparación se hace aparte (reglas + Llama 3.2, sólo texto)
     textos = data.get("textos", "")
     found = list(data.get("contradicciones", []))
-    extra = _text_rules(textos) + _text_llm(textos, cancel)
+    extra = _text_rules(textos)  # Llama 3.2 no se carga: junto con Qwen no cabe en 8 GB
     seen = {_tidy(c.get("titulo"), 60).lower() for c in found}
     for c in extra:
         key = _tidy(c.get("titulo"), 60).lower()
