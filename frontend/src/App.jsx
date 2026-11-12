@@ -44,6 +44,7 @@ function AuthScreen({ onAuthenticated }) {
 
   return (
     <main className="auth-page">
+      <div className="auth-brand"><Logo size={44} /></div>
       <section className="auth-card">
         <div className="auth-avatar" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none">
@@ -500,7 +501,7 @@ export default function App() {
                   onClick={() => setOrigin("url")}>Desde una URL</button>
               </div>
               {origin === "file" ? (
-                <FileSlot label="Captura de tu página" file={file} onFile={setFile} />
+                <FileSlot label="Captura de tu página" file={file} onFile={setFile} onClear={() => setFile(null)} />
               ) : (
                 <div className="url-input">
                   <input type="url" inputMode="url" placeholder="https://misitio.com" value={url} aria-label="Dirección de la página"
@@ -516,10 +517,10 @@ export default function App() {
             </div>
           ) : (
             <>
-              <FileSlot label="Diseño de referencia" file={design} onFile={setDesign}
+              <FileSlot label="Diseño de referencia" file={design} onFile={setDesign} onClear={() => setDesign(null)}
                 hint="Exporta el frame de Figma como PNG · arrastra, clic o Ctrl+V" />
               <span className="divider" />
-              <FileSlot label="Implementación" file={impl} onFile={setImpl}
+              <FileSlot label="Implementación" file={impl} onFile={setImpl} onClear={() => setImpl(null)}
                 hint="Captura de tu página al mismo ancho y zoom 100%" />
             </>
           )}
@@ -626,7 +627,7 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <div className="topbar-left">
-          <a className="brand" href="#/revisar"><Logo /> Lynx</a>
+          <a className="brand" href="#/revisar" aria-label="Lynx, ir a Revisar"><Logo /></a>
           <nav className="nav" aria-label="Secciones">
             <a href="#/revisar" className={page === "revisar" ? "active" : ""} aria-current={page === "revisar" ? "page" : undefined}>Revisar</a>
             <a href="#/proyectos" className={page === "proyectos" ? "active" : ""} aria-current={page === "proyectos" ? "page" : undefined}>Proyectos</a>

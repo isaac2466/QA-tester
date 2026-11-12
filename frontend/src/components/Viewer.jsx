@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Columns, Diff, Eye, Layers, Sparkles, Target, Wand, Zoom } from "./icons.jsx";
+import Dropdown from "./Dropdown.jsx";
 
 const VIEWS = {
   analyze: [
     { key: "findings", label: "Hallazgos", icon: Target, boxes: true },
-    { key: "fixed", label: "Vista corregida", icon: Wand, needs: "fixed" },
+    { key: "fixed", label: "Vista corregida", icon: Wand }, // siempre visible: si no hay correcciones lo explica
     { key: "heatmap", label: "Atención (IA)", icon: Eye, needs: "heatmap" },
     { key: "components", label: "Componentes (IA)", icon: Sparkles, needs: "components" },
   ],
@@ -22,9 +23,25 @@ const rectStyle = ([x, y, w, h], [W, H]) => ({ left: pct(x, W), top: pct(y, H), 
 /** Recuadros numerados encima de la imagen, en % para que sigan al zoom. */
 function Boxes({ findings, size, selected, hovered, onSelect }) {
   const sel = findings.find((f) => f.id === selected);
+  const hoverTarget = findings.find((f) => f.id === hovered && f.box);
+  const selectedTarget = findings.find((f) => f.id === selected && f.box);
+  const hoverTargetId = hoverTarget?.id;
+  const [lastHovered, setLastHovered] = useState(null);
+  useEffect(() => {
+    if (hoverTargetId != null) setLastHovered(hoverTargetId);
+  }, [hoverTargetId]);
+  const highlighted = hoverTarget ?? selectedTarget ?? findings.find((f) => f.id === lastHovered && f.box);
+
   return (
     <div className="boxes">
       {sel?.ref_box && <div className="box ref" style={rectStyle(sel.ref_box, size)}><span>referencia</span></div>}
+      {highlighted && (
+        <div
+          className={`box-highlight sev-${highlighted.severity}`}
+          style={rectStyle(highlighted.box, size)}
+          aria-hidden="true"
+        />
+      )}
       {findings.filter((f) => f.box).map((f, _, all) => {
         // varios hallazgos sobre el mismo elemento: separa sus números en vez de encimarlos
         const stack = all.filter((o) => o.box.join() === f.box.join());
@@ -119,7 +136,16 @@ export default function Viewer({ mode, result, sourceUrl, findings, selected, ho
   );
 
   let content;
-  if (view === "fixed") {
+  if (view === "fixed" && !result.images.fixed) {
+    content = (
+      <div className="no-fixes">
+        <Wand size={28} />
+        <p><b>No hay correcciones automáticas para esta captura.</b></p>
+        <p className="muted">La vista corregida mueve, alinea o recolorea elementos. Los hallazgos de esta captura
+          (por ejemplo, de atención o de la paleta) no se pueden arreglar moviendo píxeles: revisa su sugerencia en el panel.</p>
+      </div>
+    );
+  } else if (view === "fixed") {
     // izquierda = tu captura (antes); derecha = con las correcciones de DINOv2 + SAM (después)
     content = (
       <OverlayStage design={sourceUrl ?? result.images.annotated} impl={result.images.fixed} size={size} zoom={zoom}
@@ -158,19 +184,22 @@ export default function Viewer({ mode, result, sourceUrl, findings, selected, ho
               </button>
             ))}
           </div>
-          <label className="zoom">
+          <div className="zoom">
             <Zoom size={16} />
-            <select value={zoom} onChange={(e) => setZoom(e.target.value === "fit" ? "fit" : Number(e.target.value))}
-              aria-label="Zoom">
-              {ZOOMS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
-          </label>
+            <Dropdown
+              label="Zoom"
+              value={zoom}
+              options={ZOOMS.map(([value, label]) => ({ value, label }))}
+              onChange={setZoom}
+              className="zoom-select"
+            />
+          </div>
         </div>
       </header>
       <div className="canvas-scroll" ref={scroller} onClick={() => onSelect(null)}>
         {content}
       </div>
-      {view === "fixed" && (
+      {view === "fixed" && result.images.fixed && (
         <p className="legend">Arrastra la barra: a la izquierda tu captura, a la derecha la misma captura con {result.fixes_applied?.length ?? 0} correcciones
           aplicadas. SAM recorta cada elemento con su silueta exacta para moverlo o ajustarlo sin parches. No es una imagen inventada: son tus píxeles corregidos.</p>
       )}
