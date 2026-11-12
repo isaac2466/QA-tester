@@ -20,6 +20,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image
 
+MAX_ROWS = 64  # filas de parches por tramo (64×48 = 3072 parches: cabe en 8 GB)
 GRID_W = 48  # parches a lo ancho (en una captura de 1536px cada parche ≈ 32px)
 CLASSES = ["bloque", "texto"]
 
@@ -29,11 +30,18 @@ def dino_grid(dino, img: Image.Image) -> torch.Tensor:
     W, H = img.size
     gw = GRID_W
     gh = max(4, round(H * gw / W))
-    x = dino._prep(img, (gh, gw))
-    with dino._lock, torch.inference_mode():
-        h = dino.model(pixel_values=x).last_hidden_state[0]
     start = 1 + dino.num_registers
-    return h[start:].reshape(gh, gw, -1).permute(2, 0, 1).float().cpu()
+    # Páginas muy altas (p. ej. captura móvil de toda una página): DINOv2 compara cada parche con todos,
+    # así que la memoria crece al cuadrado. Se procesan por tramos de ≤ MAX_ROWS filas y se juntan.
+    rows = []
+    for r0 in range(0, gh, MAX_ROWS):
+        rh = min(MAX_ROWS, gh - r0)
+        y0, y1 = round(r0 * H / gh), round((r0 + rh) * H / gh)
+        x = dino._prep(img.crop((0, y0, W, max(y0 + 1, y1))), (rh, gw))
+        with dino._lock, torch.inference_mode():
+            h = dino.model(pixel_values=x).last_hidden_state[0]
+        rows.append(h[start:].reshape(rh, gw, -1))
+    return torch.cat(rows, 0).permute(2, 0, 1).float().cpu()
 
 
 class DetectorHead(nn.Module):
@@ -137,6 +145,9 @@ def trained_elements(dino, rgb, thr=0.35):
     """Elementos según el detector ENTRENADO (o [] si todavía no existe app/ai/weights/detector.pt)."""
     global _loaded
     if not WEIGHTS.exists() or dino is None:
+        return []
+    H, W = rgb.shape[:2]
+    if H > 2.7 * W:  # página muy alta (captura móvil completa): sólo rellena huecos y tardaría >1 min en CPU
         return []
     if _loaded is None:
         head = DetectorHead()
